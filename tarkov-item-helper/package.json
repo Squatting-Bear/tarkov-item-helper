@@ -1,0 +1,12 @@
+{
+  "name": "tarkov-item-helper",
+  "version": "1.0.0",
+  "description": "Helps decide which Tarkov items should be kept.",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "devDependencies": {
+    "@types/node": "^17.0.18",
+    "typescript": "^4.5.5"
+  }
+}
