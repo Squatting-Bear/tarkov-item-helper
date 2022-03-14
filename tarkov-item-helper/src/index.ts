@@ -1,3 +1,4 @@
+import { count } from 'console';
 import * as readline from 'readline';
 import { Item, Purpose, ItemExchange, Quest, HideoutLevelDetails, Craft, VendorLoyaltyLevel, Trade, Vendor,
          Notable, Completable, HideoutModule, pmcLevelComparator } from './data';
@@ -105,22 +106,23 @@ const COMMANDS: CommandInfo[] = [
 class CommandContext {
   numberedLines: NumberedThingWrapper[] = [];
   showAllResults?: boolean;
+  elidedCount: number = 0;
 
   constructor(public commandText: string, public previous?: CommandContext, public addToHistory: boolean = true) {
   }
 
   // Adds a line of output, labelled with a number so it can be referred to by the next command.
-  addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): boolean {
-    let result = true;
+  addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): void {
+    let shown = true;
 
     // Decide whether we should actually show this line or ignore it.
     if (!info.alwaysShow && !this.showAllResults) {
       let completed = info.isCompleted && info.isCompleted();
       let trimmed = info.getRequiredPmcLevel && (info.getRequiredPmcLevel() >= getTrimLevel());
-      result = !(completed || trimmed);
+      shown = !(completed || trimmed);
     }
     
-    if (result) {
+    if (shown) {
       // Get the note, if any, the user has attached to this thing.
       let note = info.getNote && info.getNote();
       note = note ? (` [USER NOTE: ${note}]`) : '';
@@ -146,13 +148,21 @@ class CommandContext {
         this.addSimpleLine(extraLine);
       }
     }
-    return result;
+    else {
+      ++this.elidedCount;
+    }
   }
 
   // Adds a line of output without numbering it.
   addSimpleLine(line: string, lessIndent?: boolean) {
     let indent = lessIndent ? '\t' : '\t\t\t';
     console.log(`${indent}${line}`);
+  }
+
+  takeElidedCount() {
+    let count = this.elidedCount;
+    this.elidedCount = 0;
+    return count;
   }
 
   // Head of a linked list of prior commands.
@@ -164,8 +174,8 @@ function getTrimLevel(): number {
   return SettingsManager.get(settings => settings.pmcLevelTrim);
 }
 
-// Prints a list of the quest/hideout purposes for the item, if any, identified by the given short name.
-function printPurposesByShortName(shortName: string, context: CommandContext) {
+// Prints the details of the item, if any, identified by the given short name.
+function printItemByShortName(shortName: string, context: CommandContext) {
   let items = Item.getItemsByShortName(shortName);
   if (items.length === 0) {
     context.addSimpleLine(`No items found with short name "${shortName}"`);
@@ -174,31 +184,25 @@ function printPurposesByShortName(shortName: string, context: CommandContext) {
     context.addSimpleLine(`Ambiguous short name "${shortName}", could be:`);
     for (const item of items) {
       context.addNumberedLine(new ItemWrapper(item));
-      context.addNumberedLine(new ShowPurposesWrapper(item));
     }
   }
   else {
-    printPurposes(items[0], context);
+    new ItemWrapper(items[0]).printDetails(context);
   }
 }
 
 // Prints a list of the quest/hideout purposes for the given item.
 function printPurposes(item: Item, context: CommandContext) {
-  context.addNumberedLine(new ItemWrapper(item));
-
   let purposes = Purpose.getPurposesForItem(item);
   if (purposes.length > 0) {
     context.addSimpleLine(`Quest and hideout purposes for this item:`);
   }
 
-  let trimCount = 0;
   for (const purpose of purposes) {
-    let wasShown = context.addNumberedLine(new PurposeWrapper(purpose));
-    if (!wasShown) {
-      trimCount += 1;
-    }
+    context.addNumberedLine(new PurposeWrapper(purpose));
   }
 
+  let trimCount = context.takeElidedCount();
   if (trimCount) {
     context.addSimpleLine(`(${trimCount} purposes were trimmed due to PMC level ` +
       'requirements or already being completed.)');
@@ -276,33 +280,29 @@ class ItemWrapper extends NotableWrapper implements NumberedThingWrapper {
   printDetails(context: CommandContext) {
     let item = this.item;
     context.addNumberedLine(new ItemWrapper(item));
-    context.addNumberedLine(new ShowPurposesWrapper(item));
 
     if (item.url) {
       context.addSimpleLine(`Wiki: ${item.url}`);
     }
     let exchanges = item.getExchanges();
-    if (exchanges.length || item.quests.length || item.hideoutLevels.length) {
-      context.addSimpleLine(`Direct uses for this item:`);
+    if (exchanges.length) {
+      context.addSimpleLine('Trades and crafts involving this item:');
     }
     else {
-      context.addSimpleLine(`No known direct uses for this item`);
+      context.addSimpleLine('No known trades or crafts involve this item');
     }
 
     // Print trades and crafts where item is an input
     for (const product of exchanges.sort(pmcLevelComparator)) {
       context.addNumberedLine(new ExchangeWrapper(product, false));
     }
-    // Print quests where item is an objective
-    for (const quest of item.quests.sort(pmcLevelComparator)) {
-      let requirement = `... requires item "${item.name}" x${quest.getRequiredItemCount(item)}`;
-      context.addNumberedLine(new QuestWrapper(quest, false), requirement);
+    let trimCount = context.takeElidedCount();
+    if (trimCount) {
+      context.addSimpleLine(`(${trimCount} trades and/or crafts were trimmed due to PMC level requirements)`);
     }
-    // Print hideout module levels where item is a requirement
-    for (const hideoutLvl of item.hideoutLevels.sort(pmcLevelComparator)) {
-      let requirement = `... requires item "${item.name}" x${hideoutLvl.getRequiredItemCount(item)}`;
-      context.addNumberedLine(new HideoutLevelWrapper(hideoutLvl, false), requirement);
-    }
+
+    // Print quests where item is an objective and hideout module levels where item is a requirement.
+    printPurposes(item, context);
   }
 }
 
@@ -502,20 +502,6 @@ class PurposeWrapper implements NumberedThingWrapper {
   }
 }
 
-// Class representing a numbered line that can be used to print the quest/hideout purposes of an item.
-class ShowPurposesWrapper implements NumberedThingWrapper {
-  constructor(private item: Item) {
-  }
-
-  getSummary(): string {
-    return `\t\t--> Show quest/hideout purposes for item "${this.item.name}"`;
-  }
-
-  printDetails(context: CommandContext): void {
-    printPurposes(this.item, context);
-  }
-}
-
 // Helper function that handles a reference to a numbered line in the previous command's output.
 function referPreviousOutput(lineNumber: number, context: CommandContext) {
   let numberedLine = context.previous && context.previous.numberedLines[lineNumber - 1];
@@ -554,7 +540,7 @@ function handleDefault(line: string, context: CommandContext): void {
   }
   else {
     // Otherwise, assume it's an item short name.
-    printPurposesByShortName(line, context);
+    printItemByShortName(line, context);
   }
 }
 
@@ -685,7 +671,7 @@ class QuestFinder extends CompletableFinder<Quest> {
 // Implements the /findh command.
 class HideoutModuleFinder extends CompletableFinder<HideoutLevelDetails> {
   getSearchKey(hideoutLvl: HideoutLevelDetails): string {
-    return hideoutLvl.module.getName();
+    return hideoutLvl.module.getName() + '|' + hideoutLvl.level;
   }
   wrapResult(hideoutLvl: HideoutLevelDetails): NumberedThingWrapper {
     return new HideoutLevelWrapper(hideoutLvl, false);
