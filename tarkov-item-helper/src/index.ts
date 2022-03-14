@@ -85,6 +85,12 @@ const COMMANDS: CommandInfo[] = [
     description: `Searches for vendors whose name contains the given regular expression.`
   },
   {
+    name: '/findnote',
+    handler: handleFindNote,
+    parameters: ' <regex>',
+    description: `Searches for things with an attached note that contains the given regular expression.`
+  },
+  {
     name: '/all',
     handler: handleAll,
     parameters: ' <command>',
@@ -708,22 +714,31 @@ function handleFindQuests(args: string, context: CommandContext) {
 
 // Handles the /findh command.
 function handleFindHideoutModules(args: string, context: CommandContext) {
-  let modules = HideoutModule.getAll();
-  let levels: HideoutLevelDetails[] = [];
-  for (const module of modules) {
-    levels.push(...module.getLevelDetails());
-  }
-  new HideoutModuleFinder().doSearch(args, levels, context);
+  new HideoutModuleFinder().doSearch(args, HideoutModule.getAllLevels(), context);
 }
 
 // Handles the /findv command.
 function handleFindVendorLevels(args: string, context: CommandContext) {
-  let vendors = Object.values(Vendor.BY_NAME);
-  let levels: VendorLoyaltyLevel[] = [];
-  for (const vendor of vendors) {
-    levels.push(...vendor.loyaltyLevels);
+  new VendorLevelFinder().doSearch(args, Vendor.getAllLoyaltyLevels(), context);
+}
+
+// Handles the /findnote command.
+function handleFindNote(args: string, context: CommandContext) {
+  function getNote<T extends Notable>(thing: T): string {
+    return thing.getUserNote() || '';
   }
-  new VendorLevelFinder().doSearch(args, levels, context);
+
+  let itemFinder = new class extends ItemFinder { getSearchKey = getNote; };
+  itemFinder.doSearch(args, Item.getAllItems(), context);
+
+  let questFinder = new class extends QuestFinder { getSearchKey = getNote; };
+  questFinder.doSearch(args, Object.values(Quest.QUESTS_BY_URL), context);
+
+  let hideoutFinder = new class extends HideoutModuleFinder { getSearchKey = getNote; };
+  hideoutFinder.doSearch(args, HideoutModule.getAllLevels(), context);
+
+  let vendorFinder = new class extends VendorLevelFinder { getSearchKey = getNote; };
+  vendorFinder.doSearch(args, Vendor.getAllLoyaltyLevels(), context);
 }
 
 // Handles the /all command.

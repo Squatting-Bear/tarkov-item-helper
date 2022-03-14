@@ -238,13 +238,22 @@ export class Vendor {
     this.loyaltyLevels = rawLoyaltyLevels.map((pmcLevelReq, index) => new VendorLoyaltyLevel(this, index + 1, pmcLevelReq));
   }
 
-  static getLoyaltyLevel(vendorName: string, level: number) {
+  static getLoyaltyLevel(vendorName: string, level: number): VendorLoyaltyLevel {
     let vendor = Vendor.BY_NAME[vendorName];
     Fail.unless(vendor, `Unknown vendor "${vendorName}"`);
 
     let loyaltyLevel = vendor.loyaltyLevels[level - 1];
     Fail.unless(loyaltyLevel, `Loyalty level ${level} does not exist on vendor "${vendorName}"`);
     return loyaltyLevel;
+  }
+
+  static getAllLoyaltyLevels(): VendorLoyaltyLevel[] {
+    let vendors = Object.values(Vendor.BY_NAME);
+    let levels: VendorLoyaltyLevel[] = [];
+    for (const vendor of vendors) {
+      levels.push(...vendor.loyaltyLevels);
+    }
+    return levels;
   }
 
   static BY_NAME: { [vendorName: string]: Vendor } = Object.keys(VENDOR_PMC_LEVEL_REQS).reduce((result, name) =>
@@ -606,6 +615,14 @@ export class HideoutModule {
 
   static getAll(): HideoutModule[] {
     return Object.values(HideoutModule.MODULES_BY_NAME);
+  }
+
+  static getAllLevels(): HideoutLevelDetails[] {
+    let levels: HideoutLevelDetails[] = [];
+    for (const module of HideoutModule.getAll()) {
+      levels.push(...module.getLevelDetails());
+    }
+    return levels;
   }
 
   static getModuleLevel(moduleName: string, level: number) {
