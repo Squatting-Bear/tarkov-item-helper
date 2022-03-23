@@ -609,10 +609,12 @@ abstract class FindxCommandHelper<T> {
   abstract getSearchKey(thing: T): string;
   abstract sortingFunction(a: T, b: T): number;
   abstract wrapResult(thing: T): NumberedThingWrapper;
+  reportNoMatches: boolean = true;
 
-  doSearch(regexString: string, searchSpace: T[], context: CommandContext) {
+  doSearch(regexString: string, searchSpace: T[], context: CommandContext): number {
     if (!regexString) {
       console.error('Error: missing argument');
+      return 0;
     }
     else {
       let regex = new RegExp(regexString, 'i');
@@ -623,7 +625,7 @@ abstract class FindxCommandHelper<T> {
         }
       }
 
-      if (!results.length) {
+      if (!results.length && this.reportNoMatches) {
         console.log('No matches found');
       }
       else {
@@ -633,6 +635,7 @@ abstract class FindxCommandHelper<T> {
           // todo: show count of elided things?
         }
       }
+      return results.length;
     }
   }
 }
@@ -714,16 +717,16 @@ function handleFindNote(args: string, context: CommandContext) {
     return thing.getUserNote() || '';
   }
 
-  let itemFinder = new class extends ItemFinder { getSearchKey = getNote; };
-  itemFinder.doSearch(args, Item.getAllItems(), context);
+  let itemFinder = new class extends ItemFinder { getSearchKey = getNote; reportNoMatches = false; };
+  let count = itemFinder.doSearch(args, Item.getAllItems(), context);
 
-  let questFinder = new class extends QuestFinder { getSearchKey = getNote; };
-  questFinder.doSearch(args, Object.values(Quest.QUESTS_BY_URL), context);
+  let questFinder = new class extends QuestFinder { getSearchKey = getNote; reportNoMatches = false; };
+  count += questFinder.doSearch(args, Object.values(Quest.QUESTS_BY_URL), context);
 
-  let hideoutFinder = new class extends HideoutModuleFinder { getSearchKey = getNote; };
-  hideoutFinder.doSearch(args, HideoutModule.getAllLevels(), context);
+  let hideoutFinder = new class extends HideoutModuleFinder { getSearchKey = getNote; reportNoMatches = false; };
+  count += hideoutFinder.doSearch(args, HideoutModule.getAllLevels(), context);
 
-  let vendorFinder = new class extends VendorLevelFinder { getSearchKey = getNote; };
+  let vendorFinder = new class extends VendorLevelFinder { getSearchKey = getNote; reportNoMatches = !count; };
   vendorFinder.doSearch(args, Vendor.getAllLoyaltyLevels(), context);
 }
 
@@ -742,7 +745,7 @@ const cli = readline.createInterface({
 // Waits for user input then passes it to handleCommand.
 function waitForCommand() {
   if (process.stdin.readable) {
-    cli.question('> ', handleCommand);
+    cli.question('---> ', handleCommand);
   }
   else {
     cli.close();
