@@ -99,6 +99,12 @@ const COMMANDS: CommandInfo[] = [
       the trim level or facility completion status).  For example, '/all /findq prapor' will show all quests
       offered by Prapor, including those that have been marked completed and those which require a PMC level
       higher than the current trim setting.`
+  },
+  {
+    name: '/listinraid',
+    handler: handleListInRaid,
+    parameters: ' <command>',
+    description: `Lists quests that require found-in-raid items as objectives, and the items they require.`
   }
 ];
 
@@ -107,12 +113,13 @@ class CommandContext {
   numberedLines: NumberedThingWrapper[] = [];
   showAllResults?: boolean;
   elidedCount: number = 0;
+  indentation: number = 1;
 
   constructor(public commandText: string, public previous?: CommandContext, public addToHistory: boolean = true) {
   }
 
   // Adds a line of output, labelled with a number so it can be referred to by the next command.
-  addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): void {
+  addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): boolean {
     let shown = true;
 
     // Decide whether we should actually show this line or ignore it.
@@ -141,8 +148,9 @@ class CommandContext {
 
       this.numberedLines.push(info);
       let lineNumber = this.numberedLines.length;
+      let indent = '\t'.repeat(this.indentation);
 
-      console.log(`${lineNumber}:\t${info.getSummary()}${status}${note}`);
+      console.log(`${lineNumber}:${indent}${info.getSummary()}${status}${note}`);
   
       for (const extraLine of extraLines) {
         this.addSimpleLine(extraLine);
@@ -151,11 +159,12 @@ class CommandContext {
     else {
       ++this.elidedCount;
     }
+    return shown;
   }
 
   // Adds a line of output without numbering it.
   addSimpleLine(line: string, lessIndent?: boolean) {
-    let indent = lessIndent ? '\t' : '\t\t\t';
+    let indent = '\t'.repeat(this.indentation) + (lessIndent ? '' : '\t\t');
     console.log(`${indent}${line}`);
   }
 
@@ -734,6 +743,27 @@ function handleFindNote(args: string, context: CommandContext) {
 function handleAll(args: string, context: CommandContext) {
   context.showAllResults = true;
   handleCommand(args, context);
+}
+
+// Handles the /listinraid command.
+function handleListInRaid(args: string, context: CommandContext) {
+  for (const quest of Object.values(Quest.QUESTS_BY_URL).sort(pmcLevelComparator)) {
+    let items = quest.getRequiredItems();
+    if (items.length && context.addNumberedLine(new QuestWrapper(quest, false))) {
+      ++context.indentation;
+      for (const item of items) {
+        context.addNumberedLine(new ItemWrapper(item, quest.getRequiredItemCount(item)));
+        ++context.indentation;
+        for (const exchange of item.producers) {
+          if (exchange.givesInRaid()) {
+            context.addNumberedLine(new ExchangeWrapper(exchange, true));
+          }
+        }
+        --context.indentation;
+      }
+      --context.indentation;
+    }
+  }
 }
 
 // Command-line interface object.

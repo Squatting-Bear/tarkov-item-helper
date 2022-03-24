@@ -14,6 +14,8 @@ const RAW_HIDEOUT_FILENAME = path.join(RAW_DATA_DIR, 'hideout.json');
 const SHORT_NAMES_FILENAME = path.join(RAW_DATA_DIR, 'TestBackendLocaleEn.dat');
 const ITEM_NAME_FIXES_FILE = path.join(RAW_DATA_DIR, 'name-fixes.json');
 
+const COLLECTOR_QUEST_URL = 'https://escapefromtarkov.fandom.com/wiki/Collector';
+
 // Specifies the PMC requirements for upgrading the vendors.
 const VENDOR_PMC_LEVEL_REQS: { [name: string]: number[] } = {
   "Prapor": [ 1, 15, 26, 36 ],
@@ -395,6 +397,10 @@ export class Quest extends Completable implements PmcLevelReqGraphNode {
       requirement._addQuest(this);
     }
     this.requiredPmcLevel = rawQuest.requiredLevel || 1;
+    if (rawQuest.url === COLLECTOR_QUEST_URL && !rawQuest.requiredLevel) {
+      // Special case, wiki doesn't list a requirement for this but it actually has a high one.
+      this.requiredPmcLevel = 62;
+    }
     Quest.QUESTS_BY_URL[rawQuest.url] = this;
   }
 
