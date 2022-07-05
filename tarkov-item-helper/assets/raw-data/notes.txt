@@ -1,8 +1,8 @@
 Getting the item short names:
 - Downloaded UABE to extract asset files (AssetsBundleExtractor_2.2stabled_64bit.zip)
-  - Put the exe in Documents/UABE (on wagga pc)
+  - Put the exe in Documents/UABE (on wagga pc), C:\apps\AssetsBundleExtractor... (on sydney pc)
 - Ran UABE and opened D:\Battlestate-Games\EscapeFromTarkov_Data\resources.assets
-- Sort by file type then name (sorting is stable)
+- Sort by file type then name (sorting is stable) ... OR sort by size; we want one of biggest
 - Find TestBackendLocaleEn
 - Export raw
   - made 'output' dir in Documents/UABE for it
@@ -10,5 +10,14 @@ Getting the item short names:
 - Edit to remove rubbish & cruft
   - illegal chars at start and end
   - only need "data"/"templates" attrib
+- Some items were missing so I added them with fake ids near the top of the file
+  e.g.
+  "whitlock-fake-id-001": {
+        "Name": "SSSh-95 Sfera-S helmet",
+        "ShortName": "SFERA"
+      }
 - Sometime an item's name on the wiki doesn't match its name in the resources, so I created the
   name-fixes.json file for manual fixes.
+- Unknown names will cause a failure in _getFromWikiReference() in data.ts.  There's a flag
+  in the function (doingUpdate) which can be set to true to print an error instead of failing,
+  to get a complete list of missing names instead of one at a time.

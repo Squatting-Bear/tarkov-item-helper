@@ -2,7 +2,7 @@
   "data": {
     "templates": {
       "whitlock-fake-id-001": {
-        "Name": "SSSh-95 Sfera-S helmet",
+        "Name": "SSSh-94 \"SFERA-S\" helmet",
         "ShortName": "SFERA"
       },
       "whitlock-fake-id-002": {
@@ -40,6 +40,126 @@
       "whitlock-fake-id-010": {
         "Name": "FirstSpear \"Strandhogg\" plate carrier rig (Ranger Green)",
         "ShortName": "Strandhogg"
+      },
+      "whitlock-fake-id-011": {
+        "Name": "Military flash drive",
+        "ShortName": "MFD"
+      },
+      "whitlock-fake-id-012": {
+        "Name": "Bottle of OLOLO Multivitamins",
+        "ShortName": "OLOLO"
+      },
+      "whitlock-fake-id-013": {
+        "Name": "Video cassette with the Cyborg Killer movie",
+        "ShortName": "VHS"
+      },
+      "whitlock-fake-id-014": {
+        "Name": "Bottle of beer \"Pevko Light\"",
+        "ShortName": "Pevko"
+      },
+      "whitlock-fake-id-015": {
+        "Name": "Topographic survey maps",
+        "ShortName": "Maps"
+      },
+      "whitlock-fake-id-016": {
+        "Name": "Can of white salt",
+        "ShortName": "Salt"
+      },
+      "whitlock-fake-id-017": {
+        "Name": "Awl",
+        "ShortName": "Awl"
+      },
+      "whitlock-fake-id-018": {
+        "Name": "BakeEzy cook book",
+        "ShortName": "BakeEzy"
+      },
+      "whitlock-fake-id-019": {
+        "Name": "Tasmanian Tiger SK plate carrier (Multicam Black)",
+        "ShortName": "TT SK"
+      },
+      "whitlock-fake-id-020": {
+        "Name": "BEAR Buddy plush toy",
+        "ShortName": "BEAR Buddy"
+      },
+      "whitlock-fake-id-021": {
+        "Name": "ECLiPSE RBAV-AF plate carrier (Ranger Green)",
+        "ShortName": "RBAV-AF"
+      },
+      "whitlock-fake-id-022": {
+        "Name": "NPP KlASS \"Bagariy\" armored rig",
+        "ShortName": "Bagariy"
+      },
+      "whitlock-fake-id-023": {
+        "Name": "Axel parrot figurine",
+        "ShortName": "Axel"
+      },
+      "whitlock-fake-id-024": {
+        "Name": "Lobaev Arms 30mm scope mount",
+        "ShortName": "Lobaev 30mm"
+      },
+      "whitlock-fake-id-025": {
+        "Name": "ZiD SP-81 26x75 signal pistol",
+        "ShortName": "SP-81"
+      },
+      "whitlock-fake-id-026": {
+        "Name": "ROP-30 reactive flare cartridge (White)",
+        "ShortName": "Flare"
+      },
+      "whitlock-fake-id-027": {
+        "Name": "RSP-30 reactive signal cartridge (Yellow)",
+        "ShortName": "Yellow"
+      },
+      "whitlock-fake-id-028": {
+        "Name": "RSP-30 reactive signal cartridge (Green)",
+        "ShortName": "Green"
+      },
+      "whitlock-fake-id-029": {
+        "Name": "RSP-30 reactive signal cartridge (Red)",
+        "ShortName": "Red"
+      },
+      "whitlock-fake-id-030": {
+        "Name": "Golden egg",
+        "ShortName": "Egg"
+      },
+      "whitlock-fake-id-031": {
+        "Name": "Missam forklift key",
+        "ShortName": "Danex"
+      },
+      "whitlock-fake-id-032": {
+        "Name": "JohnB Liquid DNB glasses",
+        "ShortName": "JohnB"
+      },
+      "whitlock-fake-id-033": {
+        "Name": "Glorious E lightweight armored mask",
+        "ShortName": "Glorious"
+      },
+      "whitlock-fake-id-034": {
+        "Name": "Baddie's red beard",
+        "ShortName": "Baddie"
+      },
+      "whitlock-fake-id-035": {
+        "Name": "DRD body armor",
+        "ShortName": "DRD"
+      },
+      "whitlock-fake-id-036": {
+        "Name": "Gingy keychain",
+        "ShortName": "Gingy"
+      },
+      "whitlock-fake-id-037": {
+        "Name": "Press pass (issued for NoiceGuy)",
+        "ShortName": "Pass"
+      },
+      "whitlock-fake-id-038": {
+        "Name": "Set of files \"Master\"",
+        "ShortName": "Master"
+      },
+      "whitlock-fake-id-039": {
+        "Name": "Body armor repair kit",
+        "ShortName": "Armor repair kit"
+      },
+      "whitlock-fake-id-040": {
+        "Name": "Weapon repair kit",
+        "ShortName": "Weapon repair kit"
       },
 
 

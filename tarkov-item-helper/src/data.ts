@@ -157,6 +157,13 @@ export class Item extends Notable {
     if (!item) {
       let name = Item.NAME_FIXES[rawItemReq.name] || rawItemReq.name;
       item = Item.BY_LONG_NAME[name];
+
+      let doingUpdate = false; // Set to true when data needs updating due to game patch.
+      if (doingUpdate && !item) {
+        console.error(`Unknown item: '${name}'\t${rawItemReq.url}`);
+        item = new Item(name, name);
+      }
+
       Fail.unless(item, `Unknown item: ${name}`);
       item.url = rawItemReq.url;
       Item.BY_URL[rawItemReq.url] = item;
