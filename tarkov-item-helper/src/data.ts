@@ -571,6 +571,14 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
     return this.subsequentModLvls;
   }
 
+  getPriorNodesTransitive(output: HideoutLevelDetails[]) {
+    let unseen = this.priorModLvls.filter(node => !output.includes(node));
+    output.push(...unseen);
+    for (const newPriorNode of unseen) {
+      newPriorNode.getPriorNodesTransitive(output);
+    }
+  }
+
   // Only use during setup
   _setupModuleConnections(prevModLvl?: HideoutLevelDetails) {
     if (prevModLvl) {

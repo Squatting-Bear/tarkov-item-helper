@@ -103,8 +103,16 @@ const COMMANDS: CommandInfo[] = [
   {
     name: '/listinraid',
     handler: handleListInRaid,
-    parameters: ' <command>',
+    parameters: '',
     description: `Lists quests that require found-in-raid items as objectives, and the items they require.`
+  },
+  {
+    name: '/reqs',
+    handler: handleReqs,
+    parameters: ' <number>',
+    description: `Prints the requirements for completing the thing identified by the given number, which must
+      refer to a numbered line in the previous command's output.  Currently, this command only works for
+      hideout modules.`
   }
 ];
 
@@ -416,7 +424,7 @@ class VendorLevelWrapper extends CompletableWrapper implements NumberedThingWrap
 
 // Class representing a numbered line describing a HideoutLevelDetails.
 class HideoutLevelWrapper extends CompletableWrapper implements NumberedThingWrapper {
-  constructor(private hideoutLevel: HideoutLevelDetails, public alwaysShow: boolean) {
+  constructor(public hideoutLevel: HideoutLevelDetails, public alwaysShow: boolean) {
     super(hideoutLevel);
   }
 
@@ -563,9 +571,14 @@ function handleHelp(args: string, context: CommandContext) {
 
 // Handles a /trim command.
 function handleTrim(args: string, context: CommandContext) {
-  let newTrim = +args;
-  SettingsManager.set(settings => settings.pmcLevelTrim = newTrim);
-  context.addSimpleLine(`Trim set to ${newTrim}`);
+  if (args) {
+    let newTrim = +args;
+    SettingsManager.set(settings => settings.pmcLevelTrim = newTrim);
+    context.addSimpleLine(`Trim set to ${newTrim}`);
+  }
+  else {
+    context.addSimpleLine(`Trim is currently ${getTrimLevel()}`);
+  }
 }
 
 // Helper function that returns the (wrapped) object being referred to via line number
@@ -763,6 +776,24 @@ function handleListInRaid(args: string, context: CommandContext) {
       }
       --context.indentation;
     }
+  }
+}
+
+// Handles the /reqs command.
+function handleReqs(args: string, context: CommandContext) {
+  let lineWrapper = resolveLineReference(args, context);
+  if (lineWrapper instanceof HideoutLevelWrapper) {
+    lineWrapper.printDetails(context);
+    let hideoutLevel = lineWrapper.hideoutLevel;
+    let priorModLvls: HideoutLevelDetails[] = [];
+    hideoutLevel.getPriorNodesTransitive(priorModLvls);
+    for (const priorModLvl of priorModLvls) {
+      context.addSimpleLine('    -^-^-^-', true);
+      (new HideoutLevelWrapper(priorModLvl, false)).printDetails(context);
+    }
+  }
+  else if (lineWrapper) {
+    console.error(`Error: cannot list requirements for things of this type`);
   }
 }
 
