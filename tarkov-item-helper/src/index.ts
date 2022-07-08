@@ -26,7 +26,10 @@ const COMMANDS: CommandInfo[] = [
       As an example, entering "scdr" will list uses for the "Screwdriver" item, one per line with each
       line numbered.  If the next command is "2", the second use listed will be described in more
       detail.
-      Entering just the '-' (hyphen) character will repeat the command prior to the one just executed.`
+      Entering just the '=' (equal sign) character will re-execute the command just executed (this may be
+      useful in conjunction with the /all command, for example).
+      Entering just the '-' (hyphen) character will re-execute the command prior to the one just executed,
+      allowing traversal back through the command history.`
   },
   {
     name: '/help',
@@ -101,6 +104,12 @@ const COMMANDS: CommandInfo[] = [
       higher than the current trim setting.`
   },
   {
+    name: '/wipe',
+    handler: handleBadWipe,
+    parameters: '',
+    description: `Clears all user data, including notes and completions. Requires restart.`
+  },
+  {
     name: '/listinraid',
     handler: handleListInRaid,
     parameters: '',
@@ -113,6 +122,12 @@ const COMMANDS: CommandInfo[] = [
     description: `Prints the requirements for completing the thing identified by the given number, which must
       refer to a numbered line in the previous command's output.  Currently, this command only works for
       hideout modules.`
+  },
+  {
+    name: '/filteri',
+    handler: handleFilterItems,
+    parameters: ' <command>',
+    description: `Executes the given command but only shows numbered item lines in the output.`
   }
 ];
 
@@ -122,6 +137,7 @@ class CommandContext {
   showAllResults?: boolean;
   elidedCount: number = 0;
   indentation: number = 1;
+  silent: boolean = false;
 
   constructor(public commandText: string, public previous?: CommandContext, public addToHistory: boolean = true) {
   }
@@ -158,7 +174,9 @@ class CommandContext {
       let lineNumber = this.numberedLines.length;
       let indent = '\t'.repeat(this.indentation);
 
-      console.log(`${lineNumber}:${indent}${info.getSummary()}${status}${note}`);
+      if (!this.silent) {
+        console.log(`${lineNumber}:${indent}${info.getSummary()}${status}${note}`);
+      }
   
       for (const extraLine of extraLines) {
         this.addSimpleLine(extraLine);
@@ -172,8 +190,10 @@ class CommandContext {
 
   // Adds a line of output without numbering it.
   addSimpleLine(line: string, lessIndent?: boolean) {
-    let indent = '\t'.repeat(this.indentation) + (lessIndent ? '' : '\t\t');
-    console.log(`${indent}${line}`);
+    if (!this.silent) {
+      let indent = '\t'.repeat(this.indentation) + (lessIndent ? '' : '\t\t');
+      console.log(`${indent}${line}`);
+    }
   }
 
   takeElidedCount() {
@@ -542,17 +562,22 @@ function handleDefault(line: string, context: CommandContext): void {
       context.addToHistory = false;
     }
   }
-  else if ('-' === line) {
-    // A 'back' command, telling us to show a prior command.
+  else if ('=' === line || '-' === line) {
+    // A 'repeat' or 'back' command, telling us to re-execute a prior command.
     context.addToHistory = false;
-    let history = CommandContext.history && CommandContext.history.previous;
+    let history = CommandContext.history;
+    if ('-' === line) {
+      history = history?.previous;
+    }
+
     if (history) {
-      let commandText = history.commandText;
       CommandContext.history = history.previous;
-      handleCommand(commandText, new CommandContext(commandText, history.previous));
+      context.previous = history.previous;
+      handleCommand(history.commandText, context);
+      CommandContext.history = history;
     }
     else {
-      console.error('No history to navigate back to.');
+      console.error('No previous command to execute.');
     }
   }
   else {
@@ -754,8 +779,16 @@ function handleFindNote(args: string, context: CommandContext) {
 
 // Handles the /all command.
 function handleAll(args: string, context: CommandContext) {
-  context.showAllResults = true;
-  handleCommand(args, context);
+  let overrideContext = new CommandContext(args, CommandContext.history?.previous, false);
+  overrideContext.showAllResults = true;
+  handleCommand(args, overrideContext);
+  context.numberedLines = overrideContext.numberedLines;
+}
+
+// This is only called if a /wipe command was nested within another command (e.g. '/all /wipe') which is invalid.
+function handleBadWipe(args: string, context: CommandContext) {
+  context.addToHistory = false;
+  console.error('Invalid use of /wipe command.');
 }
 
 // Handles the /listinraid command.
@@ -797,6 +830,20 @@ function handleReqs(args: string, context: CommandContext) {
   }
 }
 
+// Handles the /filteri command.
+function handleFilterItems(args: string, context: CommandContext) {
+  let overrideContext = new CommandContext(args, CommandContext.history);
+  overrideContext.silent = true;
+  overrideContext.addToHistory = false;
+  handleCommand(args, overrideContext);
+
+  for (const numberedLine of overrideContext.numberedLines) {
+    if (numberedLine instanceof ItemWrapper) {
+      context.addNumberedLine(numberedLine);
+    }
+  }
+}
+
 // Command-line interface object.
 const cli = readline.createInterface({
   input: process.stdin,
@@ -805,8 +852,31 @@ const cli = readline.createInterface({
 
 // Waits for user input then passes it to handleCommand.
 function waitForCommand() {
+  function handleActualWipe() {
+    cli.question('Are you sure? This will erase all user data and exit the app. Enter "yes" to confirm.\n', response => {
+      if (response.trim().toLowerCase() === 'yes') {
+        SettingsManager.reset();
+        console.log('User data erased. App will now exit.');
+        cli.close();
+      }
+      else {
+        console.error('Wipe cancelled.');
+        waitForCommand();
+      }
+    });
+  }
+
   if (process.stdin.readable) {
-    cli.question('---> ', handleCommand);
+    cli.question('---> ', commandText => {
+      if (commandText.trim() === '/wipe') {
+        // Special case: requires a confirmation prompt, and can't be nested within other commands.
+        handleActualWipe();
+      }
+      else {
+        handleCommand(commandText);
+        waitForCommand();
+      }
+    });
   }
   else {
     cli.close();
@@ -837,7 +907,7 @@ function handleCommand(commandText: string, overrideContext?: CommandContext) {
     }
     else if (commandText) {
       // Not a slash command, treat it as default.
-      handleDefault(commandText, context)
+      handleDefault(commandText, context);
     }
     else {
       // Empty line.
@@ -851,8 +921,6 @@ function handleCommand(commandText: string, overrideContext?: CommandContext) {
   catch (err) {
     console.error(err);
   }
-
-  waitForCommand();
 }
 
 // Standard magic for logging unforeseen errors.

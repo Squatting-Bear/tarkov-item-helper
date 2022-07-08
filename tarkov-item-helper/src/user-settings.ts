@@ -59,6 +59,11 @@ export class SettingsManager {
     fs.writeFileSync(SettingsManager.SETTINGS_FILENAME, JSON.stringify(SettingsManager.SETTINGS));
   }
 
+  static reset() {
+    SettingsManager.SETTINGS = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    fs.unlinkSync(SettingsManager.SETTINGS_FILENAME);
+  }
+
   private static SETTINGS_FILENAME = path.join(os.homedir(), '.tarkov-item-helper', 'user-settings.json');
   private static SETTINGS: UserSettings = SettingsManager.setup();
 
@@ -75,7 +80,8 @@ export class SettingsManager {
     }
     else {
       console.log(`No user settings file found; using defaults`);
-      return DEFAULT_SETTINGS;
+      // Make a copy of DEFAULT_SETTINGS in case we are reset later.
+      return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
     }
   }
 }
