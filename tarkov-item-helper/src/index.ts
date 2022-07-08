@@ -128,6 +128,13 @@ const COMMANDS: CommandInfo[] = [
     handler: handleFilterItems,
     parameters: ' <command>',
     description: `Executes the given command but only shows numbered item lines in the output.`
+  },
+  {
+    name: '/applynote',
+    handler: handleApplyNote,
+    parameters: ' <function>',
+    description: `For each numbered line in the previous command that represents a thing which can have a
+      note attached, executes the given function and attaches the result to that thing as a note.`
   }
 ];
 
@@ -841,6 +848,24 @@ function handleFilterItems(args: string, context: CommandContext) {
     if (numberedLine instanceof ItemWrapper) {
       context.addNumberedLine(numberedLine);
     }
+  }
+}
+
+// Handles the /applynote command.
+function handleApplyNote(args: string, context: CommandContext) {
+  if (CommandContext.history) {
+    let noteFunctor = Function(`return (${args});`)();
+    for (const numberedLine of CommandContext.history.numberedLines) {
+      if (numberedLine.setNote) {
+        let note = noteFunctor(numberedLine.getSummary(), (numberedLine.getNote && numberedLine.getNote()));
+        numberedLine.setNote(note);
+        context.addNumberedLine(numberedLine);
+      }
+    }
+  }
+  else {
+    context.addToHistory = false;
+    console.error('No previous command output to which notes can be applied.');
   }
 }
 
