@@ -3,6 +3,7 @@ import * as readline from 'readline';
 import { Item, Purpose, ItemExchange, Quest, HideoutLevelDetails, Craft, VendorLoyaltyLevel, Trade, Vendor,
          Notable, Completable, HideoutModule, pmcLevelComparator } from './data';
 import { SettingsManager } from './user-settings';
+import { pushUnique } from './util';
 
 // Represents one of the commands available to the user.
 interface CommandInfo {
@@ -110,18 +111,11 @@ const COMMANDS: CommandInfo[] = [
     description: `Clears all user data, including notes and completions. Requires restart.`
   },
   {
-    name: '/listinraid',
-    handler: handleListInRaid,
-    parameters: '',
-    description: `Lists quests that require found-in-raid items as objectives, and the items they require.`
-  },
-  {
     name: '/reqs',
     handler: handleReqs,
-    parameters: ' <number>',
-    description: `Prints the requirements for completing the thing identified by the given number, which must
-      refer to a numbered line in the previous command's output.  Currently, this command only works for
-      hideout modules.`
+    parameters: ' <command>',
+    description: `Prints the requirements for completing the things listed in the output of the given
+      command.  Currently, this command only works for quests and hideout modules.`
   },
   {
     name: '/filteri',
@@ -151,15 +145,9 @@ class CommandContext {
 
   // Adds a line of output, labelled with a number so it can be referred to by the next command.
   addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): boolean {
-    let shown = true;
-
     // Decide whether we should actually show this line or ignore it.
-    if (!info.alwaysShow && !this.showAllResults) {
-      let completed = info.isCompleted && info.isCompleted();
-      let trimmed = info.getRequiredPmcLevel && (info.getRequiredPmcLevel() >= getTrimLevel());
-      shown = !(completed || trimmed);
-    }
-    
+    let shown = this.shouldShow(info);
+
     if (shown) {
       // Get the note, if any, the user has attached to this thing.
       let note = info.getNote && info.getNote();
@@ -203,10 +191,28 @@ class CommandContext {
     }
   }
 
+  // Indicates whether the given thing should be shown in the output, based on user settings and
+  // command line instructions.
+  shouldShow(info: NumberedThingWrapper) {
+    let shown = true;
+    if (!info.alwaysShow && !this.showAllResults) {
+      let completed = info.isCompleted && info.isCompleted();
+      let trimmed = info.getRequiredPmcLevel && (info.getRequiredPmcLevel() >= getTrimLevel());
+      shown = !(completed || trimmed);
+    }
+    return shown;
+  }
+
   takeElidedCount() {
     let count = this.elidedCount;
     this.elidedCount = 0;
     return count;
+  }
+
+  takeNumberedLines() {
+    let lines = this.numberedLines;
+    this.numberedLines = [];
+    return lines;
   }
 
   // Head of a linked list of prior commands.
@@ -404,7 +410,7 @@ class ExchangeWrapper implements NumberedThingWrapper {
 
 // Class representing a numbered line describing a Quest.
 class QuestWrapper extends CompletableWrapper implements NumberedThingWrapper {
-  constructor(private quest: Quest, public alwaysShow: boolean) {
+  constructor(public quest: Quest, public alwaysShow: boolean) {
     super(quest);
   }
 
@@ -419,13 +425,20 @@ class QuestWrapper extends CompletableWrapper implements NumberedThingWrapper {
     context.addSimpleLine(`requires:`);
     context.addSimpleLine(`PMC level ${quest.getRequiredPmcLevel()}`, true);
 
-    for (const item of quest.getRequiredItems()) {
-      let itemCount = quest.getRequiredItemCount(item);
-      context.addNumberedLine(new ItemWrapper(item, itemCount));
-    }
-
     for (const prereq of quest.getPriorQuests().sort(pmcLevelComparator)) {
       context.addNumberedLine(new QuestWrapper(prereq, true));
+    }
+
+    context.addSimpleLine(`objectives:`);
+    for (const [ reqKind, reqDetails ] of quest.getAllRequirements()) {
+      if (reqKind === 'item') {
+        let item = reqDetails as Item;
+        let itemCount = quest.getRequiredItemCount(item);
+        context.addNumberedLine(new ItemWrapper(item, itemCount));
+      }
+      else {
+        context.addSimpleLine(`${reqDetails}`, true);
+      }
     }
   }
 }
@@ -786,10 +799,8 @@ function handleFindNote(args: string, context: CommandContext) {
 
 // Handles the /all command.
 function handleAll(args: string, context: CommandContext) {
-  let overrideContext = new CommandContext(args, CommandContext.history?.previous, false);
-  overrideContext.showAllResults = true;
-  handleCommand(args, overrideContext);
-  context.numberedLines = overrideContext.numberedLines;
+  context.showAllResults = true;
+  context.numberedLines = handleNestedCommand(args, context, false).numberedLines;
 }
 
 // This is only called if a /wipe command was nested within another command (e.g. '/all /wipe') which is invalid.
@@ -798,53 +809,45 @@ function handleBadWipe(args: string, context: CommandContext) {
   console.error('Invalid use of /wipe command.');
 }
 
-// Handles the /listinraid command.
-function handleListInRaid(args: string, context: CommandContext) {
-  for (const quest of Object.values(Quest.QUESTS_BY_URL).sort(pmcLevelComparator)) {
-    let items = quest.getRequiredItems();
-    if (items.length && context.addNumberedLine(new QuestWrapper(quest, false))) {
-      ++context.indentation;
-      for (const item of items) {
-        context.addNumberedLine(new ItemWrapper(item, quest.getRequiredItemCount(item)));
-        ++context.indentation;
-        for (const exchange of item.producers) {
-          if (exchange.givesInRaid()) {
-            context.addNumberedLine(new ExchangeWrapper(exchange, true));
-          }
-        }
-        --context.indentation;
-      }
-      --context.indentation;
-    }
-  }
-}
-
 // Handles the /reqs command.
 function handleReqs(args: string, context: CommandContext) {
-  let lineWrapper = resolveLineReference(args, context);
-  if (lineWrapper instanceof HideoutLevelWrapper) {
-    lineWrapper.printDetails(context);
-    let hideoutLevel = lineWrapper.hideoutLevel;
-    let priorModLvls: HideoutLevelDetails[] = [];
-    hideoutLevel.getPriorNodesTransitive(priorModLvls);
-    for (const priorModLvl of priorModLvls) {
-      context.addSimpleLine('    -^-^-^-', true);
-      (new HideoutLevelWrapper(priorModLvl, false)).printDetails(context);
+  let innerContext = handleNestedCommand(args, context, true);
+  let hideoutModLvls: HideoutLevelDetails[] = [];
+  let quests: Quest[] = [];
+
+  for (const numberedLine of innerContext.numberedLines.slice().reverse()) {
+    if (numberedLine instanceof HideoutLevelWrapper && !hideoutModLvls.includes(numberedLine.hideoutLevel)) {
+      pushUnique(hideoutModLvls, numberedLine.hideoutLevel, ...numberedLine.hideoutLevel.getPriorNodesTransitive());
+    }
+    else if (numberedLine instanceof QuestWrapper && !quests.includes(numberedLine.quest)) {
+      pushUnique(quests, numberedLine.quest, ...numberedLine.quest.getPriorNodesTransitive());
     }
   }
-  else if (lineWrapper) {
-    console.error(`Error: cannot list requirements for things of this type`);
+
+  let separator = '';
+  function printDetails(wrapper: NumberedThingWrapper) {
+    if (context.shouldShow(wrapper)) {
+      if (separator) {
+        context.addSimpleLine(separator, true);
+      }
+      wrapper.printDetails(context);
+      separator = '    -+-+-+-';
+    }
+  }
+
+  for (const hideoutModLvl of hideoutModLvls.slice().reverse()) {
+    printDetails(new HideoutLevelWrapper(hideoutModLvl, false));
+  }
+  for (const quest of quests.slice().reverse()) {
+    printDetails(new QuestWrapper(quest, false));
   }
 }
 
 // Handles the /filteri command.
 function handleFilterItems(args: string, context: CommandContext) {
-  let overrideContext = new CommandContext(args, CommandContext.history);
-  overrideContext.silent = true;
-  overrideContext.addToHistory = false;
-  handleCommand(args, overrideContext);
+  let innerContext = handleNestedCommand(args, context, true);
 
-  for (const numberedLine of overrideContext.numberedLines) {
+  for (const numberedLine of innerContext.numberedLines) {
     if (numberedLine instanceof ItemWrapper) {
       context.addNumberedLine(numberedLine);
     }
@@ -946,6 +949,15 @@ function handleCommand(commandText: string, overrideContext?: CommandContext) {
   catch (err) {
     console.error(err);
   }
+}
+
+// Handles a command that is part of another command.
+function handleNestedCommand(commandText: string, outerContext: CommandContext, silent: boolean) {
+  let innerContext = new CommandContext(commandText, CommandContext.history, false);
+  innerContext.silent = silent;
+  innerContext.showAllResults = outerContext.showAllResults;
+  handleCommand(commandText, innerContext);
+  return innerContext;
 }
 
 // Standard magic for logging unforeseen errors.

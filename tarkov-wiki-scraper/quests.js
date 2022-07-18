@@ -95,6 +95,7 @@ function processQuestPage(vendorName, questName, questUrl, questPage) {
         // console.log(objectiveText);
         if (objectiveText) {
           let count = 1;
+          let item = null;
           let match = /Find\s+(\d+)\s/.exec(objectiveText);
           if (match) {
             count = +(match[1]);
@@ -107,13 +108,18 @@ function processQuestPage(vendorName, questName, questUrl, questPage) {
             // console.log(match[1]);
             let itemLink = objective.querySelector('a');
             if (itemLink) {
-              let item = { kind: 'item', count: count, url: itemLink.href, name: itemLink.text.trim() };
-              // console.log(item);
-              objectivesInfo.push(item);
+              item = { kind: 'item', count: count, url: itemLink.href, name: itemLink.text.trim() };
             }
           }
+
+          if (!item) {
+            item = { kind: 'unknown', text: objectiveText };
+          }
+          // console.log(item);
+          objectivesInfo.push(item);
         }
       }
+      break;
     }
   }
   questInfo.objectives = objectivesInfo;

@@ -28,20 +28,6 @@ const VENDOR_PMC_LEVEL_REQS: { [name: string]: number[] } = {
   "Fence": [ 1, 1, 1, 1 ]
 };
 
-// Helper function to find the requirement for the given item and return the amount required.
-function getRequiredItemCount(item: Item, requirements: RawRequirement[]) {
-  let id = item.url;
-  for (const requirement of requirements) {
-    if (requirement.kind === 'item') {
-      let itemRequirement = requirement as RawItemReq;
-      if (itemRequirement.url === id) {
-        return itemRequirement.count;
-      }
-    }
-  }
-  throw ("Item not found" + item.name);
-}
-
 // Base class for objects to which the user may attach notes.
 export abstract class Notable {
   private userNote?: string;
@@ -302,7 +288,7 @@ export abstract class ItemExchange implements RequiresPmcLevel {
     if (item === this.getOutputItem()) {
       return this.rawCraftOrTrade.output.count;
     }
-    return getRequiredItemCount(item, this.rawCraftOrTrade.inputs);
+    return RequirementsHelper.getRequiredItemCount(item, this.rawCraftOrTrade.inputs);
   }
 
   isAvailable() {
@@ -384,14 +370,78 @@ export interface RequiresItems extends RequiresPmcLevel {
 // Interface for an object which has a PMC level requirement and is a node in a DAG of similar
 // objects, where nodes referred to by this one will have equal or higher requirement.
 // (Specifically, the objects are Quests and Hideout module levels.)
-interface PmcLevelReqGraphNode extends RequiresPmcLevel {
+interface PmcLevelReqGraphNode<T extends PmcLevelReqGraphNode<T>> extends RequiresPmcLevel {
   getDescription(): string;
   _setRequiredPmcLevel(pmcLevel: number): void;
-  getSubsequentNodes(): PmcLevelReqGraphNode[];
+  getSubsequentNodes(): T[];
+  getPriorNodes(): T[];
+}
+
+// Helper function to get both direct and indirect prior nodes of a given PmcLevelReqGraphNode.
+function getPriorNodesTransitive<T extends PmcLevelReqGraphNode<T>>(startNode: T, output: T[]) {
+  let unseen = startNode.getPriorNodes().filter(node => !output.includes(node));
+  output.push(...unseen);
+  for (const newPriorNode of unseen) {
+    getPriorNodesTransitive(newPriorNode, output);
+  }
+}
+
+// Contains helper functions for processing requirements in their JSON form.
+class RequirementsHelper {
+  static getRequiredItems(rawRequirements?: RawRequirement[]): Item[] {
+    let requiredItems: Item[] = [];
+    if (rawRequirements) {
+      for (const rawReq of rawRequirements) {
+        if (rawReq.kind === 'item') {
+          requiredItems.push(Item._getFromWikiReference(rawReq as RawItemReq));
+        }
+      }
+    }
+    return requiredItems;
+  }
+
+  // Helper function to find the requirement for the given item and return the amount required.
+  static getRequiredItemCount(item: Item, requirements: RawRequirement[]) {
+    let id = item.url;
+    for (const requirement of requirements) {
+      if (requirement.kind === 'item') {
+        let itemRequirement = requirement as RawItemReq;
+        if (itemRequirement.url === id) {
+          return itemRequirement.count;
+        }
+      }
+    }
+    throw ("Item not found" + item.name);
+  }
+
+  static getAllRequirements(rawRequirements?: RawRequirement[]): [ string, any ][] {
+    let requirements: [ string, any ][] = [];
+    if (rawRequirements) {
+      for (const rawReq of rawRequirements) {
+        let reqDetails: any;
+        if (rawReq.kind === 'item') {
+          reqDetails = Item._getFromWikiReference(rawReq as RawItemReq);
+        }
+        else if (rawReq.kind === 'hideout') {
+          let hideoutReq = rawReq as RawHideoutReq;
+          reqDetails = HideoutModule.getModuleLevel(hideoutReq.name, hideoutReq.level);
+        }
+        else if (rawReq.kind === 'vendor') {
+          let vendorReq = rawReq as RawVendorReq;
+          reqDetails = Vendor.getLoyaltyLevel(vendorReq.name, vendorReq.level);
+        }
+        else {
+          reqDetails = (rawReq as RawUnknownReq).text;
+        }
+        requirements.push([ rawReq.kind, reqDetails ]);
+      }
+    }
+    return requirements;
+  }
 }
 
 // Represents a quest in the game.
-export class Quest extends Completable implements PmcLevelReqGraphNode {
+export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
   static readonly KIND = 0;
 
   private priorQuests: Quest[] = [];
@@ -432,11 +482,11 @@ export class Quest extends Completable implements PmcLevelReqGraphNode {
   }
 
   getRequiredItems(): Item[] {
-    let requiredItems: Item[] = [];
-    for (const rawItemReq of this.rawQuest.objectives) {
-      requiredItems.push(Item._getFromWikiReference(rawItemReq));
-    }
-    return requiredItems;
+    return RequirementsHelper.getRequiredItems(this.rawQuest.objectives);
+  }
+
+  getAllRequirements(): [ string, any ][] {
+    return RequirementsHelper.getAllRequirements(this.rawQuest.objectives);
   }
 
   requiresInRaid() {
@@ -444,7 +494,7 @@ export class Quest extends Completable implements PmcLevelReqGraphNode {
   }
 
   getRequiredItemCount(item: Item): number {
-    return getRequiredItemCount(item, this.rawQuest.objectives);
+    return RequirementsHelper.getRequiredItemCount(item, this.rawQuest.objectives);
   }
 
   getRequiredPmcLevel() {
@@ -456,7 +506,17 @@ export class Quest extends Completable implements PmcLevelReqGraphNode {
     this.requiredPmcLevel = pmcLevel;
   }
 
-  getSubsequentNodes(): PmcLevelReqGraphNode[] {
+  getPriorNodes(): Quest[] {
+    return this.getPriorQuests();
+  }
+
+  getPriorNodesTransitive() {
+    let output: Quest[] = [];
+    getPriorNodesTransitive(this, output);
+    return output;
+  }
+
+  getSubsequentNodes(): Quest[] {
     return this.getSubsequentQuests();
   }
 
@@ -489,7 +549,7 @@ export class Quest extends Completable implements PmcLevelReqGraphNode {
 }
 
 // Represents a single level of a hideout module.
-export class HideoutLevelDetails extends Completable implements PmcLevelReqGraphNode {
+export class HideoutLevelDetails extends Completable implements PmcLevelReqGraphNode<HideoutLevelDetails> {
   static readonly KIND = 1;
 
   // Hideout module levels which must be built before this one can be built.
@@ -515,40 +575,11 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
   }
 
   getRequiredItems(): Item[] {
-    let requiredItems: Item[] = [];
-    if (this.rawHideoutLevelDetails.requirements) {
-      for (const rawReq of this.rawHideoutLevelDetails.requirements) {
-        if (rawReq.kind === 'item') {
-          requiredItems.push(Item._getFromWikiReference(rawReq as RawItemReq));
-        }
-      }
-    }
-    return requiredItems;
+    return RequirementsHelper.getRequiredItems(this.rawHideoutLevelDetails.requirements);
   }
 
   getAllRequirements(): [ string, any ][] {
-    let requirements: [ string, any ][] = [];
-    if (this.rawHideoutLevelDetails.requirements) {
-      for (const rawReq of this.rawHideoutLevelDetails.requirements) {
-        let reqDetails: any;
-        if (rawReq.kind === 'item') {
-          reqDetails = Item._getFromWikiReference(rawReq as RawItemReq);
-        }
-        else if (rawReq.kind === 'hideout') {
-          let hideoutReq = rawReq as RawHideoutReq;
-          reqDetails = HideoutModule.getModuleLevel(hideoutReq.name, hideoutReq.level);
-        }
-        else if (rawReq.kind === 'vendor') {
-          let vendorReq = rawReq as RawVendorReq;
-          reqDetails = Vendor.getLoyaltyLevel(vendorReq.name, vendorReq.level);
-        }
-        else {
-          reqDetails = (rawReq as RawUnknownReq).text;
-        }
-        requirements.push([ rawReq.kind, reqDetails ]);
-      }
-    }
-    return requirements;
+    return RequirementsHelper.getAllRequirements(this.rawHideoutLevelDetails.requirements);
   }
 
   requiresInRaid() {
@@ -556,7 +587,7 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
   }
 
   getRequiredItemCount(item: Item): number {
-    return getRequiredItemCount(item, this.rawHideoutLevelDetails.requirements || []);
+    return RequirementsHelper.getRequiredItemCount(item, this.rawHideoutLevelDetails.requirements || []);
   }
 
   getRequiredPmcLevel() {
@@ -567,16 +598,18 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
     this.requiredPmcLevel = pmcLevel;
   }
 
-  getSubsequentNodes(): PmcLevelReqGraphNode[] {
-    return this.subsequentModLvls;
+  getPriorNodes(): HideoutLevelDetails[] {
+    return this.priorModLvls;
   }
 
-  getPriorNodesTransitive(output: HideoutLevelDetails[]) {
-    let unseen = this.priorModLvls.filter(node => !output.includes(node));
-    output.push(...unseen);
-    for (const newPriorNode of unseen) {
-      newPriorNode.getPriorNodesTransitive(output);
-    }
+  getPriorNodesTransitive() {
+    let output: HideoutLevelDetails[] = [];
+    getPriorNodesTransitive(this, output);
+    return output;
+  }
+
+  getSubsequentNodes(): HideoutLevelDetails[] {
+    return this.subsequentModLvls;
   }
 
   // Only use during setup
@@ -762,11 +795,11 @@ export function pmcLevelComparator(a: RequiresPmcLevel, b: RequiresPmcLevel): nu
 
 // Helper function that traverses a graph of PMC level dependencies to compute the minimum PMC
 // level required at each node.
-function traversePmcLevelRequirementsGraph(nodes: PmcLevelReqGraphNode[]) {
+function traversePmcLevelRequirementsGraph<T extends PmcLevelReqGraphNode<T>>(nodes: T[]) {
   let sortedNodes = [...nodes].sort(pmcLevelComparator);
-  let workingStack: PmcLevelReqGraphNode[] = [];
+  let workingStack: T[] = [];
   while (sortedNodes.length || workingStack.length) {
-    let node = (workingStack.length ? workingStack.pop() : sortedNodes.pop()) as PmcLevelReqGraphNode;
+    let node = (workingStack.length ? workingStack.pop() : sortedNodes.pop()) as T;
     for (const subsequentNode of node.getSubsequentNodes()) {
       if (subsequentNode.getRequiredPmcLevel() < node.getRequiredPmcLevel()) {
         // The 'subsequentNode' requires 'node' to be done first, so adjust its level to be that

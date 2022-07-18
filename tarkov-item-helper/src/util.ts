@@ -6,3 +6,11 @@ export abstract class Fail {
     }
   }
 }
+
+export function pushUnique(target: any[], ...items: any) {
+  for (const item of items) {
+    if (!target.includes(item)) {
+      target.push(item);
+    }
+  }
+}
