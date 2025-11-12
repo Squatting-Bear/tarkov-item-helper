@@ -1,25 +1,71 @@
 import { JSDOM } from 'jsdom';
 import * as fs from 'fs';
+import * as common from './common.js';
 
 console.log('start');
 
-const VENDOR_NAMES = [ 'Prapor', 'Therapist', 'Skier', 'Peacekeeper', 'Mechanic', 'Ragman', 'Jaeger', 'Fence' ];
+//const VENDOR_NAMES = [ 'Prapor', 'Therapist', 'Skier', 'Peacekeeper', 'Mechanic', 'Ragman', 'Jaeger', 'Fence' ];
 const OUTPUT_DIR = './output';
 const QUESTS_FILE = OUTPUT_DIR + '/quests.json';
 
-let quests = [];
+let wikiXmlFile = process.argv[2];
+console.log('reading quests from file: ' + wikiXmlFile);
 
-JSDOM.fromURL('https://escapefromtarkov.fandom.com/wiki/Quests').then(async questsPage => {
-  //console.log(questsPage.window.document.body.getAttribute('class'));
-  let body = questsPage.window.document.body;
+function findLine(linesIterator, searchRegex, terminatingRegex) {
+  do {
+    let next = linesIterator.next();
+    if (next.done) {
+      return null;
+    }
+    let line = next.value;
+    if (terminatingRegex && terminatingRegex.test(line)) {
+      return null;
+    }
 
-  // For each vendor, process their table of quests.
-  for (const vendorName of VENDOR_NAMES) {
-    let table = body.querySelector('table.' + vendorName + '-content');
-    await processQuestTable(vendorName, table);
+    let result = searchRegex.exec(line);
+    if (result) {
+      return result;
+    }
+  } while (true);
+}
+
+const HEADING_REGEX = /^=+([^=]+)=+/;
+
+JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiXml => {
+  let window = wikiXml.window;
+  let doc = window.document;
+  // Xpath turns out to be prohibitively slow, so fell back to doing it the hard way.
+  // let questsPageResult = doc.evaluate("/mediawiki/page[title = 'Quests']", doc, null, window.XPathResult.ANY_TYPE);
+
+  let questsPage = common.findPage(doc, 'Quests');
+  console.log('questsPage found = ' + (questsPage != null));
+
+  let questsText = common.getPageText(questsPage);
+  console.log('questsPage content = ' + questsText.substr(0, 60));
+
+  let linesIterator = common.makeLineIterator(questsText);
+  let foundQuestsTable = findLine(linesIterator, /==List of Quests==/);
+  console.log('foundQuestsTable = ' + foundQuestsTable);
+
+  let quests = [];
+  const wikiRowBeginMarkup = /^\|\-/;
+  while (findLine(linesIterator, wikiRowBeginMarkup, HEADING_REGEX)) {
+    let questTitleLine = linesIterator.next().value;
+    // There's one case of a superfluous 'row begin' line (for the 'Key to the City' quest).
+    while (wikiRowBeginMarkup.exec(questTitleLine)) {
+      questTitleLine = linesIterator.next().value;
+    }
+
+    let questTitleMatch = /^\|\s*\[\[([^\|\]]*)\|?[^\]]*\]\]\s*$/.exec(questTitleLine);
+    let questTitle = questTitleMatch && questTitleMatch[1];
+    if (questTitle) {
+      console.log('quest: ' + questTitle);
+      let questPage = common.findPage(doc, questTitle);
+      // console.log('quest page found ' + (questPage != null));
+      let questInfo = processQuestPage(questPage, questTitle);
+      quests.push(questInfo);
+    }
   }
-  // let table = body.querySelector('table.' + VENDOR_NAMES[1] + '-content');
-  // await processQuestTable(VENDOR_NAMES[1], table);
 
   if (!fs.existsSync(OUTPUT_DIR)){
       fs.mkdirSync(OUTPUT_DIR);
@@ -29,115 +75,112 @@ JSDOM.fromURL('https://escapefromtarkov.fandom.com/wiki/Quests').then(async ques
   console.log('finished');
 });
 
-async function processQuestTable(vendorName, table) {
-  // Get the <tr> elements within the table's <tbody>
-  let rows = table.firstElementChild.children;
-
-  // Skip first two rows, which are table headers
-  for (let i = 2; i < rows.length; ++i) {
-  //ajw for (let i = 28; i < 29; ++i) {
-    let anchor = rows[i].querySelector('th > b > a');
-    console.log(anchor.href);
-    let questPage = await JSDOM.fromURL(anchor.href);
-    processQuestPage(vendorName, anchor.text, anchor.href, questPage);
+function parseInfobox(wikiText) {
+  let linesIterator = common.makeLineIterator(wikiText);
+  if (!findLine(linesIterator, /^\{\{Infobox/, HEADING_REGEX)) {
+    console.log('warning: could not find infobox');
+    return null;
   }
+
+  let infobox = {};
+  do {
+    let nextLine = linesIterator.next();
+    if (nextLine.done || /^\}\}/.test(nextLine.value)) {
+      break;
+    }
+
+    let match = /^\|([^=]+)=(.*)/.exec(nextLine.value);
+    if (!match || !match[1]) {
+      console.log('warning: could not parse infobox line: ' + nextLine.value);
+    }
+    else {
+      infobox[match[1].trim()] = match[2];
+    }
+  } while (true);
+  return infobox;
 }
 
-function processQuestPage(vendorName, questName, questUrl, questPage) {
-  // console.log(questPage.window.document.body.getAttribute('class'));
-  let body = questPage.window.document.body;
+function processUnorderedList(linesIterator, lineParser) {
+  do {
+    let nextLine = linesIterator.next();
+    if (nextLine.done || !nextLine.value.startsWith('*')) {
+      break;
+    }
+    lineParser(nextLine.value);
+  } while (true);
+}
+
+const WIKI_LINK_REGEX = /[^\[]*\[\[([^\|\]]*)\|?[^\]]*\]\]/g;
+
+function extractWikiLinks(wikiString) {
+  let links = [];
+  for (let matchResult of wikiString.matchAll(WIKI_LINK_REGEX)) {
+    links.push(matchResult[1]);
+  }
+  return links;
+}
+
+function processQuestPage(questPage, questName) {
+  let questText = common.getPageText(questPage);
+  let infobox = parseInfobox(questText);
+  let vendorName = infobox['given by'];
+  vendorName = vendorName && extractWikiLinks(vendorName)[0];
+  if (!vendorName) {
+    console.log('warning: no vendor in infobox for quest ' + questName);
+  }
+
+  let questUrl = common.pageTitleToUrl(questName);
   let questInfo = { vendor: vendorName, name: questName, url: questUrl};
 
   // Get links to previous quests
-  let infoboxCells = body.querySelectorAll('td.va-infobox-content');
-  for (let infoboxCell of infoboxCells) {
-    let text = infoboxCell.textContent
-    //console.log(text);
-    if (text && text.startsWith('Previous:')) {
-      //console.log('yes');
-      let previousQuestInfo = [];
-      let previousQuestAnchors = infoboxCell.querySelectorAll('a');
-      for (let previousQuestAnchor of previousQuestAnchors) {
-        let previousQuest = { url: previousQuestAnchor.href, text: previousQuestAnchor.text };
-        //console.log(previousQuest);
-        previousQuestInfo.push(previousQuest);
-      }
-      questInfo.previousQuests = previousQuestInfo;
+  if (infobox.previous) {
+    let previousQuestInfo = [];
+    for (let previousQuestTitle of extractWikiLinks(infobox.previous)) {
+      let previousQuest = { url: common.pageTitleToUrl(previousQuestTitle), text: previousQuestTitle };
+      // console.log(previousQuest);
+      previousQuestInfo.push(previousQuest);
     }
+    questInfo.previousQuests = previousQuestInfo;
   }
 
-  // Get requirements
-  let requirementsTitleSpan = body.querySelector('h2 > span[id=Requirements]');
-  for (let node = requirementsTitleSpan && requirementsTitleSpan.parentNode; node; node = node.nextSibling) {
-    // console.log(node.nodeName);
-    if (node.nodeName.toLowerCase() === 'ul') {
-      let requirementsText = node.textContent;
-      // console.log(requirementsText);
-      if (requirementsText) {
-        let match = / be level (\d+) /.exec(requirementsText);
+  // Look for requirements and objectives
+  let linesIterator = common.makeLineIterator(questText);
+  do {
+    let heading = findLine(linesIterator, HEADING_REGEX);
+    if (!heading) {
+      break;
+    }
+
+    if (heading[1] === 'Requirements') {
+      // Check for a minimum level requirement.
+      processUnorderedList(linesIterator, line => {
+        let match = / be level (\d+) /.exec(line);
         if (match) {
           // console.log('level req=' + match[1]);
           questInfo.requiredLevel = +(match[1]);
         }
-      }
-      break;
+      });
     }
-  }
-
-  // Get objectives
-  let objectivesInfo = [];
-  let objectivesTitleSpan = body.querySelector('h2 > span[id=Objectives]');
-  for (let node = objectivesTitleSpan && objectivesTitleSpan.parentNode; node; node = node.nextSibling) {
-    // console.log(node.nodeName);
-    if (node.nodeName.toLowerCase() === 'ul') {
-      for (const objective of node.children) {
-        let objectiveText = objective.textContent;
-        // console.log(objectiveText);
-        if (objectiveText) {
-          let count = 1;
-          let item = null;
-          let match = /Find\s+(\d+)\s/.exec(objectiveText);
-          if (match) {
-            count = +(match[1]);
-          }
-          else {
-            match = /Find.+ in raid/.exec(objectiveText);
-          }
-
-          if (match) {
-            // console.log(match[1]);
-            let itemLink = objective.querySelector('a');
-            if (itemLink) {
-              item = { kind: 'item', count: count, url: itemLink.href, name: itemLink.text.trim() };
-            }
-          }
-
-          if (!item) {
-            item = { kind: 'unknown', text: objectiveText };
-          }
+    else if (heading[1] === 'Objectives') {
+      // Parse item objectives (any other objectives will just be recorded as text).
+      let objectivesInfo = [];
+      processUnorderedList(linesIterator, line => {
+        let match = /[Ff]ind\sa?(?<num>\d+)?\s?\[\[(?<link>[^\|\]]+)\|?[^\]]*\]\](?<raid>.*in raid)?/.exec(line);
+        if (match) {
+          let itemName = match.groups.link;
+          let item = { kind: 'item', count: (match.groups.num || 1), url: common.pageTitleToUrl(itemName), name: itemName };
           // console.log(item);
           objectivesInfo.push(item);
         }
-      }
-      break;
+        else {
+          let item = { kind: 'unknown', text: line };
+          // console.log(item);
+          objectivesInfo.push(item);
+        }
+      });
+      questInfo.objectives = objectivesInfo;
     }
-  }
-  questInfo.objectives = objectivesInfo;
-  quests.push(questInfo);
-}
+  } while (true);
 
-// Quest Requirements/Objectives DOM Example
-//<div class="mw-parser-output">
-//  <!-- ... other stuff -->
-//
-//  <h2><span class="mw-headline" id="Requirements">Requirements</span></h2>
-//  <ul><li>Must be level 18 to start this quest.</li></ul>
-//  <h2><span class="mw-headline" id="Objectives">Objectives</span></h2>
-//  <ul>
-//    <li>Eliminate 12 <a href="/wiki/Scavs" title="Scavs">Scavs</a> on <a href="/wiki/Shoreline" title="Shoreline">Shoreline</a> while using a suppressed weapon</li>
-//    <li>Find 7 <a href="/wiki/Lower_half-mask" title="Lower half-mask">Lower half-masks</a> <a href="/wiki/Found_in_raid" title="Found in raid"><font color="red">in raid</font></a></li>
-//    <li>Hand over 7 <a href="/wiki/Lower_half-mask" title="Lower half-mask">Lower half-masks</a> to <a href="/wiki/Prapor" title="Prapor">Prapor</a></li>
-//  </ul>
-//
-//  <!-- other stuff ... -->
-//</div>
+  return questInfo;
+}

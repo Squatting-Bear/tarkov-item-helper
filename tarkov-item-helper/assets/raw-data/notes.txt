@@ -29,9 +29,11 @@ Getting the item short names:
 
 /filteri /reqs /findq .
 /applynote (desc,oldnote)=>{return (oldnote?(oldnote+', '):'')+desc.replace(/.+( x\d+)/, 'pri-1 quest$1');}
+  - To exclude Collector:  /filteri /reqs /findq ^(?:(?!Collector).)*$
 
 /filteri /reqs /findh meds.*[12]|workb.*1|nutri.*1|gener.*1|secur.*1
 /applynote (desc,oldnote)=>{return (oldnote?(oldnote+', '):'')+desc.replace(/.+( x\d+)/, 'pri-1 hideout$1');}
+
 
 * navigate back not working (numbered lines not updating?)
 * 'supplier' quest not listing in-raid items
