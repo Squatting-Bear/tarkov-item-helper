@@ -1,5 +1,9 @@
 // File for functions used by more than one of the scraper utilities.
 
+export const OUTPUT_DIR = './output';
+
+export const HEADING_REGEX = /^=+([^=]+)=+/;
+
 export function makeLineIterator(text) {
   return text.split(/\r?\n/).values();
 }
@@ -24,4 +28,36 @@ export function findPage(wikiDocument, pageTitle) {
     }
   }
   return resultPage;
+}
+
+export function findLine(linesIterator, searchRegex, terminatingRegex) {
+  do {
+    let next = linesIterator.next();
+    if (next.done) {
+      return null;
+    }
+    let line = next.value;
+    if (terminatingRegex && terminatingRegex.test(line)) {
+      return null;
+    }
+
+    let result = searchRegex.exec(line);
+    if (result) {
+      return result;
+    }
+  } while (true);
+}
+
+const WIKI_LINK_REGEX = /[^\[]*\[\[([^\|\]]*)\|?[^\]]*\]\]/g;
+
+export function extractWikiLink(wikiString) {
+  return extractWikiLinks(wikiString)[0];
+}
+
+export function extractWikiLinks(wikiString) {
+  let links = [];
+  for (let matchResult of wikiString.matchAll(WIKI_LINK_REGEX)) {
+    links.push(matchResult[1]);
+  }
+  return links;
 }

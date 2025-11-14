@@ -5,31 +5,10 @@ import * as common from './common.js';
 console.log('start');
 
 //const VENDOR_NAMES = [ 'Prapor', 'Therapist', 'Skier', 'Peacekeeper', 'Mechanic', 'Ragman', 'Jaeger', 'Fence' ];
-const OUTPUT_DIR = './output';
-const QUESTS_FILE = OUTPUT_DIR + '/quests.json';
+const QUESTS_FILE = common.OUTPUT_DIR + '/quests.json';
 
 let wikiXmlFile = process.argv[2];
 console.log('reading quests from file: ' + wikiXmlFile);
-
-function findLine(linesIterator, searchRegex, terminatingRegex) {
-  do {
-    let next = linesIterator.next();
-    if (next.done) {
-      return null;
-    }
-    let line = next.value;
-    if (terminatingRegex && terminatingRegex.test(line)) {
-      return null;
-    }
-
-    let result = searchRegex.exec(line);
-    if (result) {
-      return result;
-    }
-  } while (true);
-}
-
-const HEADING_REGEX = /^=+([^=]+)=+/;
 
 JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiXml => {
   let window = wikiXml.window;
@@ -44,12 +23,12 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
   console.log('questsPage content = ' + questsText.substr(0, 60));
 
   let linesIterator = common.makeLineIterator(questsText);
-  let foundQuestsTable = findLine(linesIterator, /==List of Quests==/);
+  let foundQuestsTable = common.findLine(linesIterator, /==List of Quests==/);
   console.log('foundQuestsTable = ' + foundQuestsTable);
 
   let quests = [];
   const wikiRowBeginMarkup = /^\|\-/;
-  while (findLine(linesIterator, wikiRowBeginMarkup, HEADING_REGEX)) {
+  while (common.findLine(linesIterator, wikiRowBeginMarkup, common.HEADING_REGEX)) {
     let questTitleLine = linesIterator.next().value;
     // There's one case of a superfluous 'row begin' line (for the 'Key to the City' quest).
     while (wikiRowBeginMarkup.exec(questTitleLine)) {
@@ -67,8 +46,8 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
     }
   }
 
-  if (!fs.existsSync(OUTPUT_DIR)){
-      fs.mkdirSync(OUTPUT_DIR);
+  if (!fs.existsSync(common.OUTPUT_DIR)){
+      fs.mkdirSync(common.OUTPUT_DIR);
   }
   fs.writeFileSync(QUESTS_FILE, JSON.stringify(quests));
 
@@ -77,7 +56,7 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
 
 function parseInfobox(wikiText) {
   let linesIterator = common.makeLineIterator(wikiText);
-  if (!findLine(linesIterator, /^\{\{Infobox/, HEADING_REGEX)) {
+  if (!common.findLine(linesIterator, /^\{\{Infobox/, common.HEADING_REGEX)) {
     console.log('warning: could not find infobox');
     return null;
   }
@@ -110,21 +89,11 @@ function processUnorderedList(linesIterator, lineParser) {
   } while (true);
 }
 
-const WIKI_LINK_REGEX = /[^\[]*\[\[([^\|\]]*)\|?[^\]]*\]\]/g;
-
-function extractWikiLinks(wikiString) {
-  let links = [];
-  for (let matchResult of wikiString.matchAll(WIKI_LINK_REGEX)) {
-    links.push(matchResult[1]);
-  }
-  return links;
-}
-
 function processQuestPage(questPage, questName) {
   let questText = common.getPageText(questPage);
   let infobox = parseInfobox(questText);
   let vendorName = infobox['given by'];
-  vendorName = vendorName && extractWikiLinks(vendorName)[0];
+  vendorName = vendorName && common.extractWikiLink(vendorName);
   if (!vendorName) {
     console.log('warning: no vendor in infobox for quest ' + questName);
   }
@@ -135,7 +104,7 @@ function processQuestPage(questPage, questName) {
   // Get links to previous quests
   if (infobox.previous) {
     let previousQuestInfo = [];
-    for (let previousQuestTitle of extractWikiLinks(infobox.previous)) {
+    for (let previousQuestTitle of common.extractWikiLinks(infobox.previous)) {
       let previousQuest = { url: common.pageTitleToUrl(previousQuestTitle), text: previousQuestTitle };
       // console.log(previousQuest);
       previousQuestInfo.push(previousQuest);
@@ -146,7 +115,7 @@ function processQuestPage(questPage, questName) {
   // Look for requirements and objectives
   let linesIterator = common.makeLineIterator(questText);
   do {
-    let heading = findLine(linesIterator, HEADING_REGEX);
+    let heading = common.findLine(linesIterator, common.HEADING_REGEX);
     if (!heading) {
       break;
     }

@@ -1,110 +1,136 @@
 import { JSDOM } from 'jsdom';
 import * as fs from 'fs';
+import * as common from './common.js';
 
 console.log('start');
 
-const OUTPUT_DIR = './output';
+const HIDEOUT_FILE = common.OUTPUT_DIR + '/hideout.json';
 
-const HIDEOUT_FILE = OUTPUT_DIR + '/hideout.json';
+let wikiXmlFile = process.argv[2];
 
-let hideoutModules = [];
+JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiXml => {
+  let doc = wikiXml.window.document;
 
-JSDOM.fromURL('https://escapefromtarkov.fandom.com/wiki/Hideout').then(async hideoutPage => {
-  //console.log(hideoutPage.window.document.body.getAttribute('class'));
-  let body = hideoutPage.window.document.body;
-  let moduleSelectors = body.querySelectorAll('div.dealer-toggle');
+  let hideoutPage = common.findPage(doc, 'Hideout');
+  console.log('hideout page found = ' + (hideoutPage != null));
 
-  // For each hideout module, extract info from its table.
-  for (const moduleSelector of moduleSelectors) {
-    let moduleId = moduleSelector.getAttribute('data-dealer');
-    let moduleName = moduleSelector.getAttribute('title');
-    let table = body.querySelector('table.' + moduleId + '-content');
-    processHideoutTable(moduleId, moduleName, table);
+  let hideoutText = common.getPageText(hideoutPage);
+  console.log('hideoutPage content = ' + hideoutText.substr(0, 60));
+
+  let linesIterator = common.makeLineIterator(hideoutText);
+  let modulesSection = common.findLine(linesIterator, /==Modules==/);
+  console.log('modulesSection = ' + modulesSection);
+
+  let hideoutModules = [];
+  const wikiRowBeginMarkup = /^\{\|\s*class="wikitable"/;
+  while (common.findLine(linesIterator, wikiRowBeginMarkup, common.HEADING_REGEX)) {
+    let table = readWikiTable(linesIterator);
+    let tableRows = table.values();
+
+    // First row should contain a single cell with the module name in it.
+    let moduleNameCell = tableRows.next().value[0];
+    let moduleName = /[^\|]+\|\s*([^\<]+)/.exec(moduleNameCell[0])[1];
+    console.log('reading table for module ' + moduleName);
+
+    // Second row is headings.
+    tableRows.next();
+
+    // Each remaining row should describe one 'level' of the hideout module.  (Note that
+    // the wiki authors also add an empty row at the end of the table for some reason.)
+    let levelsInfo = [];
+    for (const moduleLevel of tableRows) {
+      if (moduleLevel.length >= 2) {
+        let processedLevel = processHideoutModuleLevel(moduleLevel);
+        levelsInfo.push(processedLevel);
+      }
+    }
+    //ajw what do we use id for, can we remove it?
+    hideoutModules.push({ id: moduleName, name: moduleName, levels: levelsInfo });
   }
-  // let ajwHideoutModule = 'Medstation';
-  // let table = body.querySelector('table.' + ajwHideoutModule + '-content');
-  // processHideoutTable(ajwHideoutModule, table);
 
-  if (!fs.existsSync(OUTPUT_DIR)){
-      fs.mkdirSync(OUTPUT_DIR);
+  if (!fs.existsSync(common.OUTPUT_DIR)){
+      fs.mkdirSync(common.OUTPUT_DIR);
   }
   fs.writeFileSync(HIDEOUT_FILE, JSON.stringify(hideoutModules));
 
   console.log('finished');
 });
 
-function processHideoutTable(moduleId, moduleName, table) {
-  // Get the <tr> elements within the table's <tbody>
-  let rows = table.firstElementChild.children;
-  let levelsInfo = [];
-
-  // skip first two rows, which are table headers
-  for (let i = 2; i < rows.length; ++i) {
-  //ajw for (let i = 28; i < 29; ++i) {
-    let row = rows[i];
-    let cell = row.firstElementChild;
-    // First cell is the module level this row is about.  We know this from
-    // our loop counter anyway.
-    //let level = +(cell.textContent);
-
-    // 2nd cell contains list of requirements.
-    cell = cell.nextElementSibling;
-    let reqList = cell.firstElementChild;
-    if (reqList.nodeName.toLowerCase() !== 'ul') {
-      console.warn('unexpected element type: ' + reqList.nodeName);
+// Reads a wiki table into a triply nested array, i.e. returns an array of rows, where each row
+// is an array of cells, where each cell is an array of strings (lines).
+function readWikiTable(linesIterator) {
+  let rows = [];
+  let row = [];
+  let cell = [];
+  for (;;) {
+    let nextLine = linesIterator.next();
+    if (nextLine.done || nextLine.value.startsWith('|}')) {
+      row.push(cell);
+      rows.push(row);
+      break;
     }
-    let parsedRequirements = [];
-    for (const requirement of reqList.children) {
-      parsedRequirements.push(parseRequirement(requirement));
+
+    let line = nextLine.value.trim();
+    if (line.startsWith('|-')) {
+      // Beginning of next row
+      row.push(cell);
+      cell = [];
+      rows.push(row);
+      row = [];
+      if (line.length > 2) {
+        cell.push(line.substring(2));
+      }
     }
-    levelsInfo.push({ requirements: parsedRequirements });
+    else if (line.startsWith('|') || line.startsWith('!')) {
+      // Beginning of a new cell
+      if (cell.length > 0) {
+        row.push(cell);
+        cell = [];
+      }
+      if (line.length > 1) {
+        cell.push(line.substring(1));
+      }
+    }
+    else {
+      // Line is in current cell
+      cell.push(line);
+    }
   }
-  hideoutModules.push({ id: moduleId, name: moduleName, levels: levelsInfo });
+  return rows;
 }
 
-function parseRequirement(reqNode) {
-  let reqText = reqNode.textContent.trim();
-  let link = reqNode.querySelector('a');
-  let match = /^\w+\s+LL(\d)$/.exec(reqText);
-  if (match && link) {
-    // Vendor requirement
-    return { kind: 'vendor', name: link.text, url: link.href, level: +(match[1])};
-  }
+function processHideoutModuleLevel(moduleTableRow) {
+  // console.log(moduleTableRow);
+  //ajw maybe should assert this is what we expect
+  let levelNumber = +(moduleTableRow[0][0]);
 
-  match = /^Level\s+(\d)\s+\w+/.exec(reqText);
-  if (match && link) {
-    // Hideout requirement
-    return { kind: 'hideout', name: link.text, url: link.href, level: +(match[1])};
+  let requirements = [];
+  for (const requirementText of moduleTableRow[1]) {
+    let match = /^\*\s(\[\[[^\]]+\]\])\s+LL(\d+)$/.exec(requirementText);
+    if (match) {
+      // Vendor requirement
+      let name = common.extractWikiLink(match[1]);
+      requirements.push({ kind: 'vendor', name: name, url: common.pageTitleToUrl(name), level: +(match[2])});
+    }
+    else if (match = /^\*\sLevel\s+(\d)\s+\[\[Hideout#Modules\|([^\]]+)\]\]/.exec(requirementText)) {
+      // Hideout requirement
+      //ajw modules don't have their own pages, so the 'url' isn't a url - can we get rid of this attrib?
+      let reqModule = match[2];
+      requirements.push({ kind: 'hideout', name: reqModule, url: ('hideout-module:' + reqModule), level: +(match[1])});
+    }
+    else if (match = /^\*\s(\d+)\s+(\[\[[^\]]+\]\])/.exec(requirementText)) {
+      // Item requirement
+      let item = common.extractWikiLink(match[2]);
+      requirements.push({ kind: 'item', name: item, url: common.pageTitleToUrl(item), count: +(match[1])});
+    }
+    else if ((requirementText === 'Or') || /\* Owning /.test(requirementText)) {
+      // Skip these; they're used when modules can be pre-unlocked by owning particular editions of the game.
+    }
+    else {
+      requirements.push({ kind: 'unknown', text: requirementText });
+    }
   }
+  // console.log(requirements);
 
-  match = /^(\d+)\s+\S+/.exec(reqText);
-  if (match && link) {
-    // Item requirement
-    return { kind: 'item', name: link.text, url: link.href, count: +(match[1])};
-  }
-
-  return { kind: 'unknown', text: reqText };
+  return { level: levelNumber, requirements: requirements };
 }
-
-// Hideout Module DOM Example
-//<tr>
-//  <th>3</th>
-//  <td>
-//    <ul>
-//      <li>1 <a href="/wiki/Ratchet_wrench" title="Ratchet wrench">Ratchet wrench</a></li>
-//      <li>20,000 Roubles</li>
-//      <li>2 <a href="/wiki/Pliers_Elite" title="Pliers Elite">Pliers Elite</a></li>
-//      <li>5 <a href="/wiki/Shustrilo_sealing_foam" title="Shustrilo sealing foam">Shustrilo sealing foam</a></li>
-//      <li><a href="/wiki/Jaeger" title="Jaeger">Jaeger</a> LL3</li>
-//      <li>Level 3 <a href="/wiki/Hideout#Generator" title="Hideout">Generator</a></li>
-//      <li>Level 3 <a href="/wiki/Hideout#Heating" title="Hideout">Heating</a></li>
-//    </ul>
-//  </td>
-//  <td>
-//    <ul>
-//      <li>Produce <a href="/wiki/Purified_water" title="Purified water">Purified water</a></li>
-//      <li>Hydration regeneration rate <font color="green">+19 WP/hr</font> (37 WP/hr in total)</li>
-//    </ul>
-//  </td>
-//  <td>16 Hours</td>
-//</tr>
