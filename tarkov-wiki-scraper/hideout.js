@@ -15,16 +15,13 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
   console.log('hideout page found = ' + (hideoutPage != null));
 
   let hideoutText = common.getPageText(hideoutPage);
-  console.log('hideoutPage content = ' + hideoutText.substr(0, 60));
-
   let linesIterator = common.makeLineIterator(hideoutText);
   let modulesSection = common.findLine(linesIterator, /==Modules==/);
   console.log('modulesSection = ' + modulesSection);
 
   let hideoutModules = [];
-  const wikiRowBeginMarkup = /^\{\|\s*class="wikitable"/;
-  while (common.findLine(linesIterator, wikiRowBeginMarkup, common.HEADING_REGEX)) {
-    let table = readWikiTable(linesIterator);
+  while (common.findLine(linesIterator, common.WIKI_TABLE_BEGIN_REGEX, common.HEADING_REGEX)) {
+    let table = common.readWikiTable(linesIterator);
     let tableRows = table.values();
 
     // First row should contain a single cell with the module name in it.
@@ -44,7 +41,8 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
         levelsInfo.push(processedLevel);
       }
     }
-    //ajw what do we use id for, can we remove it?
+
+    //TODO what do we use id for, can we remove it? same for the 'url' attribute on some things.
     hideoutModules.push({ id: moduleName, name: moduleName, levels: levelsInfo });
   }
 
@@ -56,52 +54,8 @@ JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiX
   console.log('finished');
 });
 
-// Reads a wiki table into a triply nested array, i.e. returns an array of rows, where each row
-// is an array of cells, where each cell is an array of strings (lines).
-function readWikiTable(linesIterator) {
-  let rows = [];
-  let row = [];
-  let cell = [];
-  for (;;) {
-    let nextLine = linesIterator.next();
-    if (nextLine.done || nextLine.value.startsWith('|}')) {
-      row.push(cell);
-      rows.push(row);
-      break;
-    }
-
-    let line = nextLine.value.trim();
-    if (line.startsWith('|-')) {
-      // Beginning of next row
-      row.push(cell);
-      cell = [];
-      rows.push(row);
-      row = [];
-      if (line.length > 2) {
-        cell.push(line.substring(2));
-      }
-    }
-    else if (line.startsWith('|') || line.startsWith('!')) {
-      // Beginning of a new cell
-      if (cell.length > 0) {
-        row.push(cell);
-        cell = [];
-      }
-      if (line.length > 1) {
-        cell.push(line.substring(1));
-      }
-    }
-    else {
-      // Line is in current cell
-      cell.push(line);
-    }
-  }
-  return rows;
-}
-
 function processHideoutModuleLevel(moduleTableRow) {
   // console.log(moduleTableRow);
-  //ajw maybe should assert this is what we expect
   let levelNumber = +(moduleTableRow[0][0]);
 
   let requirements = [];
@@ -114,7 +68,6 @@ function processHideoutModuleLevel(moduleTableRow) {
     }
     else if (match = /^\*\sLevel\s+(\d)\s+\[\[Hideout#Modules\|([^\]]+)\]\]/.exec(requirementText)) {
       // Hideout requirement
-      //ajw modules don't have their own pages, so the 'url' isn't a url - can we get rid of this attrib?
       let reqModule = match[2];
       requirements.push({ kind: 'hideout', name: reqModule, url: ('hideout-module:' + reqModule), level: +(match[1])});
     }

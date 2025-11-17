@@ -13,15 +13,11 @@ console.log('reading quests from file: ' + wikiXmlFile);
 JSDOM.fromFile(wikiXmlFile, { contentType: "application/xml" }).then(async wikiXml => {
   let window = wikiXml.window;
   let doc = window.document;
-  // Xpath turns out to be prohibitively slow, so fell back to doing it the hard way.
-  // let questsPageResult = doc.evaluate("/mediawiki/page[title = 'Quests']", doc, null, window.XPathResult.ANY_TYPE);
 
   let questsPage = common.findPage(doc, 'Quests');
   console.log('questsPage found = ' + (questsPage != null));
 
   let questsText = common.getPageText(questsPage);
-  console.log('questsPage content = ' + questsText.substr(0, 60));
-
   let linesIterator = common.makeLineIterator(questsText);
   let foundQuestsTable = common.findLine(linesIterator, /==List of Quests==/);
   console.log('foundQuestsTable = ' + foundQuestsTable);
