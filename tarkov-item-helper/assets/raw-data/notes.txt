@@ -6,7 +6,6 @@ Getting the item short names:
 - Find TestBackendLocaleEn
 - Export raw
   - made 'output' dir in Documents/UABE for it
-- Copy file to tarkov-item-helper dir
 - Edit to remove rubbish & cruft
   - illegal chars at start and end
   - only need "data"/"templates" attrib
@@ -16,14 +15,18 @@ Getting the item short names:
         "Name": "SSSh-95 Sfera-S helmet",
         "ShortName": "SFERA"
       }
+  Update: haven't had to do this with current Tarkov version, hopefully the TestBackendLocaleEn
+  file is now being kept up to date properly.
+- Run tarkov-wiki-scraper/tmp.sh to produce item-names.json then copy that to
+  tarkov-item-helper/assets/raw-data.
+  - The LOCALE_FILE variable in tmp.sh needs to point to TestBackendLocaleEn.
 - Sometime an item's name on the wiki doesn't match its name in the resources, so I created the
   name-fixes.json file for manual fixes.
 - Unknown names will cause a failure in _getFromWikiReference() in data.ts.  There's a flag
   in the function (doingUpdate) which can be set to true to print an error instead of failing,
   to get a complete list of missing names instead of one at a time.
 
-  
-  
+
 
 
 

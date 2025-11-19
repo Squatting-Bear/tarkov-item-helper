@@ -132,6 +132,16 @@ const COMMANDS: CommandInfo[] = [
   }
 ];
 
+const ANSI = {
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  reset: '\x1b[0m',
+};
+
 // Context required when handling a command.
 class CommandContext {
   numberedLines: NumberedThingWrapper[] = [];
@@ -151,7 +161,7 @@ class CommandContext {
     if (shown) {
       // Get the note, if any, the user has attached to this thing.
       let note = info.getNote && info.getNote();
-      note = note ? (` [USER NOTE: ${note}]`) : '';
+      note = note ? (`${ANSI.yellow} [USER NOTE: ${note}]${ANSI.reset}`) : '';
 
       // If the thing is completable, tell the user whether it's completed or, if not, what PMC
       // level is required before it can be completed.
@@ -320,7 +330,7 @@ class ItemWrapper extends NotableWrapper implements NumberedThingWrapper {
   }
 
   getSummary(): string {
-    let summary = `"${this.item.name}" (${this.item.getRawShortName()})`;
+    let summary = `${ANSI.green}"${this.item.name}"${ANSI.reset} (${this.item.getRawShortName()})`;
     if (this.count) {
       summary += ` x${this.count}`;
     }
@@ -370,7 +380,7 @@ class ExchangeWrapper implements NumberedThingWrapper {
   getSummary(): string {
     let exchange = this.exchange;
     let pmcReq = this.exchange.isAvailable() ? '' : `*PMC${this.getRequiredPmcLevel()}\t`;
-    let summary = `${pmcReq}${exchange.getKind().toUpperCase()} (`;
+    let summary = `${pmcReq}${ANSI.cyan}${exchange.getKind().toUpperCase()}${ANSI.reset} (`;
     let separator = '';
     for (const item of exchange.getInputItems()) {
       let itemCount = exchange.getItemCount(item);
@@ -415,7 +425,7 @@ class QuestWrapper extends CompletableWrapper implements NumberedThingWrapper {
   }
 
   getSummary(): string {
-    return `Quest "${this.quest.getName()}", from ${this.quest.getVendorName()}`;
+    return `Quest ${ANSI.magenta}"${this.quest.getName()}"${ANSI.reset}, from ${this.quest.getVendorName()}`;
   }
 
   printDetails(context: CommandContext) {
@@ -469,7 +479,7 @@ class HideoutLevelWrapper extends CompletableWrapper implements NumberedThingWra
   }
 
   getSummary(): string {
-    return this.hideoutLevel.getDescription();
+    return `${ANSI.magenta}${this.hideoutLevel.getDescription()}${ANSI.reset}`;
   }
 
   printDetails(context: CommandContext) {
