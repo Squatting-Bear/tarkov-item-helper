@@ -11,7 +11,7 @@ const RAW_CRAFTS_FILENAME = path.join(RAW_DATA_DIR, 'crafts.json');
 const RAW_TRADES_FILENAME = path.join(RAW_DATA_DIR, 'trades.json');
 const RAW_QUESTS_FILENAME = path.join(RAW_DATA_DIR, 'quests.json');
 const RAW_HIDEOUT_FILENAME = path.join(RAW_DATA_DIR, 'hideout.json');
-const SHORT_NAMES_FILENAME = path.join(RAW_DATA_DIR, 'TestBackendLocaleEn.dat');
+const SHORT_NAMES_FILENAME = path.join(RAW_DATA_DIR, 'item-names.json');
 const ITEM_NAME_FIXES_FILE = path.join(RAW_DATA_DIR, 'name-fixes.json');
 
 const COLLECTOR_QUEST_URL = 'https://escapefromtarkov.fandom.com/wiki/Collector';
@@ -25,6 +25,9 @@ const VENDOR_PMC_LEVEL_REQS: { [name: string]: number[] } = {
   "Mechanic": [ 1, 20, 30, 40 ],
   "Ragman": [ 1, 17, 32, 42 ],
   "Jaeger": [ 2, 15, 22, 33 ],
+  "Ref": [ 1, 15, 25, 35 ],
+  "Lightkeeper": [ 1, 1, 1, 1 ],
+  "BTR Driver": [ 1, 1, 1, 1 ],
   "Fence": [ 1, 1, 1, 1 ]
 };
 
@@ -138,7 +141,11 @@ export class Item extends Notable {
   }
 
   // Only use during setup
-  static _getFromWikiReference(rawItemReq: RawItemReq) {
+  static _getFromWikiReference(rawItemReq: RawItemReq, debugInfo: any) {
+    if (!(rawItemReq && rawItemReq.url && rawItemReq.name)) {
+      Fail.unless(false, `Invalid item: ${JSON.stringify(debugInfo)}`);
+    }
+
     let item = Item.BY_URL[rawItemReq.url];
     if (!item) {
       let name = Item.NAME_FIXES[rawItemReq.name] || rawItemReq.name;
@@ -147,6 +154,7 @@ export class Item extends Notable {
       let doingUpdate = false; // Set to true when data needs updating due to game patch.
       if (doingUpdate && !item) {
         console.error(`Unknown item: '${name}'\t${rawItemReq.url}`);
+        console.log(debugInfo);
         item = new Item(name, name);
       }
 
@@ -277,11 +285,11 @@ export abstract class ItemExchange implements RequiresPmcLevel {
   }
 
   getInputItems(): Item[] {
-    return this.rawCraftOrTrade.inputs.map(rawItemReq => Item._getFromWikiReference(rawItemReq));
+    return this.rawCraftOrTrade.inputs.map(rawItemReq => Item._getFromWikiReference(rawItemReq, this.rawCraftOrTrade));
   }
 
   getOutputItem(): Item {
-    return Item._getFromWikiReference(this.rawCraftOrTrade.output);
+    return Item._getFromWikiReference(this.rawCraftOrTrade.output, this.rawCraftOrTrade);
   }
 
   getItemCount(item: Item) {
@@ -388,12 +396,12 @@ function getPriorNodesTransitive<T extends PmcLevelReqGraphNode<T>>(startNode: T
 
 // Contains helper functions for processing requirements in their JSON form.
 class RequirementsHelper {
-  static getRequiredItems(rawRequirements?: RawRequirement[]): Item[] {
+  static getRequiredItems(debugInfo: any, rawRequirements?: RawRequirement[]): Item[] {
     let requiredItems: Item[] = [];
     if (rawRequirements) {
       for (const rawReq of rawRequirements) {
         if (rawReq.kind === 'item') {
-          requiredItems.push(Item._getFromWikiReference(rawReq as RawItemReq));
+          requiredItems.push(Item._getFromWikiReference(rawReq as RawItemReq, debugInfo));
         }
       }
     }
@@ -414,13 +422,13 @@ class RequirementsHelper {
     throw ("Item not found" + item.name);
   }
 
-  static getAllRequirements(rawRequirements?: RawRequirement[]): [ string, any ][] {
+  static getAllRequirements(debugInfo: any, rawRequirements?: RawRequirement[]): [ string, any ][] {
     let requirements: [ string, any ][] = [];
     if (rawRequirements) {
       for (const rawReq of rawRequirements) {
         let reqDetails: any;
         if (rawReq.kind === 'item') {
-          reqDetails = Item._getFromWikiReference(rawReq as RawItemReq);
+          reqDetails = Item._getFromWikiReference(rawReq as RawItemReq, debugInfo);
         }
         else if (rawReq.kind === 'hideout') {
           let hideoutReq = rawReq as RawHideoutReq;
@@ -454,6 +462,7 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
       requirement._addQuest(this);
     }
     this.requiredPmcLevel = rawQuest.requiredLevel || 1;
+    //ajw check this, hopefully unncessary now?
     if (rawQuest.url === COLLECTOR_QUEST_URL && !rawQuest.requiredLevel) {
       // Special case, wiki doesn't list a requirement for this but it actually has a high one.
       this.requiredPmcLevel = 62;
@@ -482,11 +491,11 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
   }
 
   getRequiredItems(): Item[] {
-    return RequirementsHelper.getRequiredItems(this.rawQuest.objectives);
+    return RequirementsHelper.getRequiredItems(this.rawQuest, this.rawQuest.objectives);
   }
 
   getAllRequirements(): [ string, any ][] {
-    return RequirementsHelper.getAllRequirements(this.rawQuest.objectives);
+    return RequirementsHelper.getAllRequirements(this.rawQuest, this.rawQuest.objectives);
   }
 
   requiresInRaid() {
@@ -575,11 +584,11 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
   }
 
   getRequiredItems(): Item[] {
-    return RequirementsHelper.getRequiredItems(this.rawHideoutLevelDetails.requirements);
+    return RequirementsHelper.getRequiredItems(this.rawHideoutLevelDetails, this.rawHideoutLevelDetails.requirements);
   }
 
   getAllRequirements(): [ string, any ][] {
-    return RequirementsHelper.getAllRequirements(this.rawHideoutLevelDetails.requirements);
+    return RequirementsHelper.getAllRequirements(this.rawHideoutLevelDetails, this.rawHideoutLevelDetails.requirements);
   }
 
   requiresInRaid() {

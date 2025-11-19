@@ -55,13 +55,13 @@ function processCraftsOrTradesPage(doc, specificStuff) {
   console.log('finished writing ' + specificStuff.outputFilename);
 }
 
-const INPUT_ITEM_REGEX = /x(\d+)\s*\<br\/\>\s*[^\[]*\[\[([^\|\]]*)\|?[^\]]*\]\]/g;
+const INPUT_ITEM_REGEX = /\[\[[^\]]+\]\]\s*(?:x(?<num>\d+)\s*)?\<br\/\>\s*[^\[\+]*\[\[(?<id>[^\|\]]*)\|?[^\]]*\]\]/g;
 
 function readItemList(itemListText) {
   let inputs = [];
   for (let matchResult of itemListText.matchAll(INPUT_ITEM_REGEX)) {
-    let itemCount = +(matchResult[1]);
-    let itemName = matchResult[2].trim();
+    let itemCount = matchResult.groups.num ? +(matchResult.groups.num) : 1;
+    let itemName = matchResult.groups.id.trim();
     inputs.push({ kind: 'item', count: itemCount, url: common.pageTitleToUrl(itemName), name: itemName });
   }
   return inputs;

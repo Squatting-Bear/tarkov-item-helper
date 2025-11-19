@@ -9,6 +9,11 @@ export function makeLineIterator(text) {
 }
 
 export function pageTitleToUrl(pageTitle) {
+  pageTitle = pageTitle.trim();
+  let anchorIndex = pageTitle.indexOf('#');
+  if (anchorIndex >= 0) {
+    pageTitle = pageTitle.substring(0, anchorIndex);
+  }
   return "https://escapefromtarkov.fandom.com/wiki/" + pageTitle.replaceAll(' ', '_');
 }
 

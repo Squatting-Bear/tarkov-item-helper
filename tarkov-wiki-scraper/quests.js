@@ -131,9 +131,10 @@ function processQuestPage(questPage, questName) {
       let objectivesInfo = [];
       processUnorderedList(linesIterator, line => {
         let match = /[Ff]ind\sa?(?<num>\d+)?\s?\[\[(?<link>[^\|\]]+)\|?[^\]]*\]\](?<raid>.*in raid)?/.exec(line);
-        if (match) {
+        if (match && !isObjectiveIncorrectMatch(match)) {
           let itemName = match.groups.link;
-          let item = { kind: 'item', count: (match.groups.num || 1), url: common.pageTitleToUrl(itemName), name: itemName };
+          let itemCount = match.groups.num ? +(match.groups.num) : 1;
+          let item = { kind: 'item', count: itemCount, url: common.pageTitleToUrl(itemName), name: itemName };
           // console.log(item);
           objectivesInfo.push(item);
         }
@@ -148,4 +149,18 @@ function processQuestPage(questPage, questName) {
   } while (true);
 
   return questInfo;
+}
+
+function isObjectiveIncorrectMatch(match) {
+  if (match.groups.link === 'Found in raid') {
+    // This happens with Peacekeeper's 'Trophies' quest, it has lines that start like this:
+    //   Find [[Found in raid|<font color="red">in raid</font>]] and hand over 20 [[BEAR]] ...
+    return true;
+  }
+  if (match.groups.link === 'Jaeger') {
+    // This happens with Mechanic's 'Introduction' quest, it has this line:
+    //   Find [[Jaeger]]'s camp at the specified spot on [[Woods]]
+    return true;
+  }
+  return false;
 }
