@@ -18,7 +18,7 @@ const COMMANDS: CommandInfo[] = [
   {
     name: '',
     handler: handleDefault,
-    parameters: '<number>|<string>|\'-\'',
+    parameters: '<number>|<string>|\'=\'|\'-\'',
     description: `Any command which does not begin with a / character is interpreted as a default command. If
       it is just a number, it is treated as a reference to a numbered line in the output of the previous
       command.  Otherwise, it is treated as an item "short name", and the uses of that item (both direct
@@ -27,10 +27,13 @@ const COMMANDS: CommandInfo[] = [
       As an example, entering "scdr" will list uses for the "Screwdriver" item, one per line with each
       line numbered.  If the next command is "2", the second use listed will be described in more
       detail.
-      Entering just the '=' (equal sign) character will re-execute the command just executed (this may be
+      Entering just the '=' (equal sign) character will re-execute the last command (this may be
       useful in conjunction with the /all command, for example).
-      Entering just the '-' (hyphen) character will re-execute the command prior to the one just executed,
-      allowing traversal back through the command history.`
+      Entering just the '-' (hyphen) character will re-display the results of the command prior to the
+      last command, and makes that command the last command.  This allows traversal back through the
+      command history.  Note that '-' does not re-execute the prior command, just prints its results
+      (i.e. the numbered lines that were output).  The '=' command can then be used to re-execute it
+      if desired.  Commands that produced no results are skipped.`
   },
   {
     name: '/help',
@@ -157,31 +160,9 @@ class CommandContext {
   addNumberedLine(info: NumberedThingWrapper, ...extraLines: string[]): boolean {
     // Decide whether we should actually show this line or ignore it.
     let shown = this.shouldShow(info);
-
     if (shown) {
-      // Get the note, if any, the user has attached to this thing.
-      let note = info.getNote && info.getNote();
-      note = note ? (`${ANSI.yellow} [USER NOTE: ${note}]${ANSI.reset}`) : '';
-
-      // If the thing is completable, tell the user whether it's completed or, if not, what PMC
-      // level is required before it can be completed.
-      let status = '';
-      if (info.isCompleted) {
-        if (info.isCompleted()) {
-          status = ' *completed';
-        }
-        else if (info.getRequiredPmcLevel) {
-          status = ` *PMC${info.getRequiredPmcLevel()}`;
-        }
-      }
-
       this.numberedLines.push(info);
-      let lineNumber = this.numberedLines.length;
-      let indent = '\t'.repeat(this.indentation);
-
-      if (!this.silent) {
-        console.log(`${lineNumber}:${indent}${info.getSummary()}${status}${note}`);
-      }
+      this.printNumberedLine(info, this.numberedLines.length);
   
       for (const extraLine of extraLines) {
         this.addSimpleLine(extraLine);
@@ -198,6 +179,29 @@ class CommandContext {
     if (!this.silent) {
       let indent = '\t'.repeat(this.indentation) + (lessIndent ? '' : '\t\t');
       console.log(`${indent}${line}`);
+    }
+  }
+
+  printNumberedLine(line: NumberedThingWrapper, lineNumber: number) {
+    if (!this.silent) {
+      // If the thing is completable, tell the user whether it's completed or, if not, what PMC
+      // level is required before it can be completed.
+      let status = '';
+      if (line.isCompleted) {
+        if (line.isCompleted()) {
+          status = ' *completed';
+        }
+        else if (line.getRequiredPmcLevel) {
+          status = ` *PMC${line.getRequiredPmcLevel()}`;
+        }
+      }
+
+      // Get the note, if any, the user has attached to this thing.
+      let note = line.getNote && line.getNote();
+      note = note ? (`${ANSI.yellow} [USER NOTE: ${note}]${ANSI.reset}`) : '';
+
+      let indent = '\t'.repeat(this.indentation);
+      console.log(`${lineNumber}:${indent}${line.getSummary()}${status}${note}`);
     }
   }
 
@@ -592,22 +596,43 @@ function handleDefault(line: string, context: CommandContext): void {
       context.addToHistory = false;
     }
   }
-  else if ('=' === line || '-' === line) {
-    // A 'repeat' or 'back' command, telling us to re-execute a prior command.
+  else if ('=' === line) {
+    // A 'repeat' command, telling us to re-execute the previous command.
     context.addToHistory = false;
-    let history = CommandContext.history;
-    if ('-' === line) {
-      history = history?.previous;
-    }
-
+    let history = context.previous;
     if (history) {
-      CommandContext.history = history.previous;
       context.previous = history.previous;
+      context.commandText = history.commandText;
+      console.log(`(Re-executing command "${ANSI.red}${history.commandText}${ANSI.reset}")`);
       handleCommand(history.commandText, context);
-      CommandContext.history = history;
     }
     else {
       console.error('No previous command to execute.');
+    }
+  }
+  else if ('-' === line) {
+    // A 'back' command, telling us to re-print the (numbered) output of a prior command.
+    if (!context.addToHistory) {
+      console.error('The "-" command cannot be nested within another command');
+      return;
+    }
+
+    context.addToHistory = false;
+    let history = CommandContext.history?.previous;
+    while (history && history.numberedLines.length === 0) {
+      history = history.previous;
+    }
+
+    if (history) {
+      CommandContext.history = history;
+      context.previous = history;
+      console.log(`(Re-displaying results of command "${ANSI.red}${history.commandText}${ANSI.reset}")`);
+      for (const [index, line] of history.numberedLines.entries()) {
+        context.printNumberedLine(line, (index + 1));
+      }
+    }
+    else {
+      console.error('No previous output to print.');
     }
   }
   else {
@@ -866,9 +891,9 @@ function handleFilterItems(args: string, context: CommandContext) {
 
 // Handles the /applynote command.
 function handleApplyNote(args: string, context: CommandContext) {
-  if (CommandContext.history) {
+  if (context.previous) {
     let noteFunctor = Function(`return (${args});`)();
-    for (const numberedLine of CommandContext.history.numberedLines) {
+    for (const numberedLine of context.previous.numberedLines) {
       if (numberedLine.setNote) {
         let note = noteFunctor(numberedLine.getSummary(), (numberedLine.getNote && numberedLine.getNote()));
         numberedLine.setNote(note);
@@ -963,7 +988,7 @@ function handleCommand(commandText: string, overrideContext?: CommandContext) {
 
 // Handles a command that is part of another command.
 function handleNestedCommand(commandText: string, outerContext: CommandContext, silent: boolean) {
-  let innerContext = new CommandContext(commandText, CommandContext.history, false);
+  let innerContext = new CommandContext(commandText, outerContext.previous, false);
   innerContext.silent = silent;
   innerContext.showAllResults = outerContext.showAllResults;
   handleCommand(commandText, innerContext);
@@ -982,8 +1007,14 @@ console.log('Enter /help for a list of available commands.');
 waitForCommand();
 
 // todo:
+//ajw check these
 // - implement /uncomplete cmd (unmark quest or hideout module as complete)
 // - there are other errors that should set addToHistory to false
 // - altyn fshield details gives 'Item not foundDogtag USEC'
 // - possibly /complete /note /trim shouldn't do anything when run from history, just show output.
 // - if last command failed, history shouldn't skip over previous successful one.
+
+// - if a nested command fails, the entire command should fail i.e. not be added to history
+// - /findq should say if it trimmed results
+// - remove asterisks from start of non-item quest objectives
+

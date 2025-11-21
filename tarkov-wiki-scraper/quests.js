@@ -111,12 +111,13 @@ function processQuestPage(questPage, questName) {
   // Look for requirements and objectives
   let linesIterator = common.makeLineIterator(questText);
   do {
-    let heading = common.findLine(linesIterator, common.HEADING_REGEX);
-    if (!heading) {
+    let headingMatch = common.findLine(linesIterator, common.HEADING_REGEX);
+    if (!headingMatch) {
       break;
     }
 
-    if (heading[1] === 'Requirements') {
+    const heading = headingMatch[1].trim();
+    if (heading === 'Requirements') {
       // Check for a minimum level requirement.
       processUnorderedList(linesIterator, line => {
         let match = / be level (\d+) /.exec(line);
@@ -126,7 +127,7 @@ function processQuestPage(questPage, questName) {
         }
       });
     }
-    else if (heading[1] === 'Objectives') {
+    else if (heading === 'Objectives') {
       // Parse item objectives (any other objectives will just be recorded as text).
       let objectivesInfo = [];
       processUnorderedList(linesIterator, line => {
@@ -151,6 +152,8 @@ function processQuestPage(questPage, questName) {
   return questInfo;
 }
 
+// Checks for specific known false positives when trying to match 'find item' objectives, these are
+// difficult to eliminate from the regex so we just check for them individually.
 function isObjectiveIncorrectMatch(match) {
   if (match.groups.link === 'Found in raid') {
     // This happens with Peacekeeper's 'Trophies' quest, it has lines that start like this:
