@@ -136,10 +136,11 @@ const COMMANDS: CommandInfo[] = [
 ];
 
 const ANSI = {
+  bold: '\x1b[1m',
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
-  blue: '\x1b[34m',
+  blue: '\x1b[94m',
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
   reset: '\x1b[0m',
@@ -263,7 +264,7 @@ function printPurposes(item: Item, context: CommandContext) {
   }
 
   for (const purpose of purposes) {
-    context.addNumberedLine(new PurposeWrapper(purpose));
+    context.addNumberedLine(new PurposeWrapper(purpose, item));
   }
 
   let trimCount = context.takeElidedCount();
@@ -358,7 +359,7 @@ class ItemWrapper extends NotableWrapper implements NumberedThingWrapper {
 
     // Print trades and crafts where item is an input
     for (const product of exchanges.sort(pmcLevelComparator)) {
-      context.addNumberedLine(new ExchangeWrapper(product, false));
+      context.addNumberedLine(new ExchangeWrapper(product, false, item));
     }
     let trimCount = context.takeElidedCount();
     if (trimCount) {
@@ -374,7 +375,7 @@ class ItemWrapper extends NotableWrapper implements NumberedThingWrapper {
 // todo: might want to add notes to these (e.g. is it profitable).  if so, first line of details
 // should be self-reference (add 'useBriefSummary' arg to ctor).
 class ExchangeWrapper implements NumberedThingWrapper {
-  constructor(private exchange: ItemExchange, public alwaysShow: boolean) {
+  constructor(private exchange: ItemExchange, public alwaysShow: boolean, private highlightedItem: Item) {
   }
 
   getRequiredPmcLevel() {
@@ -388,12 +389,20 @@ class ExchangeWrapper implements NumberedThingWrapper {
     let separator = '';
     for (const item of exchange.getInputItems()) {
       let itemCount = exchange.getItemCount(item);
-      summary += `${separator}"${item.name}" x${itemCount}`;
+      let itemText = `${separator}"${item.name}" x${itemCount}`;
+      if (item === this.highlightedItem) {
+        itemText = `${ANSI.bold}${itemText}${ANSI.reset}`;
+      }
+      summary += itemText;
       separator = ', ';
     }
     let provider = exchange.getProviderDescription();
     let outputItem = exchange.getOutputItem();
-    summary += `) at ${provider} to get ("${outputItem.name}" x${exchange.getItemCount(outputItem)})`;
+    let outputItemText = `"${outputItem.name}" x${exchange.getItemCount(outputItem)}`;
+    if (outputItem === this.highlightedItem) {
+      outputItemText = `${ANSI.bold}${outputItemText}${ANSI.reset}`;
+    }
+    summary += `) at ${provider} to get (${outputItemText})`;
     return summary;
   }
 
@@ -513,7 +522,7 @@ class HideoutLevelWrapper extends CompletableWrapper implements NumberedThingWra
 
 // Class representing a numbered line describing a Purpose.
 class PurposeWrapper implements NumberedThingWrapper {
-  constructor(private purpose: Purpose) {
+  constructor(private purpose: Purpose, private highlightedItem: Item) {
   }
 
   isCompleted(): boolean {
@@ -545,7 +554,7 @@ class PurposeWrapper implements NumberedThingWrapper {
         let exchangeLine = '';
         let exchangeCount = segment.getExchangeCount();
         exchangeLine += `... ${exchangeCount} time${(exchangeCount === 1) ? '': 's'}`;
-        context.addNumberedLine(new ExchangeWrapper(exchange, true), exchangeLine);
+        context.addNumberedLine(new ExchangeWrapper(exchange, true, this.highlightedItem), exchangeLine);
       }
     }
 
