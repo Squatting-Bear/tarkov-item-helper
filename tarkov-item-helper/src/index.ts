@@ -135,8 +135,11 @@ const COMMANDS: CommandInfo[] = [
   }
 ];
 
+const MAX_PURPOSE_TRAIL_LENGTH = 3;
+
 const ANSI = {
   bold: '\x1b[1m',
+  inverse: '\x1b[7m',
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
@@ -190,10 +193,10 @@ class CommandContext {
       let status = '';
       if (line.isCompleted) {
         if (line.isCompleted()) {
-          status = ' *completed';
+          status = ` ${ANSI.inverse}*completed${ANSI.reset}`;
         }
         else if (line.getRequiredPmcLevel) {
-          status = ` *PMC${line.getRequiredPmcLevel()}`;
+          status = ` ${ANSI.inverse}*PMC${line.getRequiredPmcLevel()}${ANSI.reset}`;
         }
       }
 
@@ -264,7 +267,9 @@ function printPurposes(item: Item, context: CommandContext) {
   }
 
   for (const purpose of purposes) {
-    context.addNumberedLine(new PurposeWrapper(purpose, item));
+    if (purpose.trail.length <= MAX_PURPOSE_TRAIL_LENGTH) {
+      context.addNumberedLine(new PurposeWrapper(purpose, item));
+    }
   }
 
   let trimCount = context.takeElidedCount();
@@ -384,7 +389,7 @@ class ExchangeWrapper implements NumberedThingWrapper {
 
   getSummary(): string {
     let exchange = this.exchange;
-    let pmcReq = this.exchange.isAvailable() ? '' : `*PMC${this.getRequiredPmcLevel()}\t`;
+    let pmcReq = this.exchange.isAvailable() ? '' : `${ANSI.inverse}*PMC${this.getRequiredPmcLevel()}${ANSI.reset}\t`;
     let summary = `${pmcReq}${ANSI.cyan}${exchange.getKind().toUpperCase()}${ANSI.reset} (`;
     let separator = '';
     for (const item of exchange.getInputItems()) {
@@ -402,7 +407,7 @@ class ExchangeWrapper implements NumberedThingWrapper {
     if (outputItem === this.highlightedItem) {
       outputItemText = `${ANSI.bold}${outputItemText}${ANSI.reset}`;
     }
-    summary += `) at ${provider} to get (${outputItemText})`;
+    summary += `) ${ANSI.cyan}at${ANSI.reset} ${provider} ${ANSI.cyan}to get${ANSI.reset} (${outputItemText})`;
     return summary;
   }
 
