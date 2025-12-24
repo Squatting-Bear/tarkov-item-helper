@@ -7,7 +7,8 @@ export interface RawRequirement {
 export interface RawItemReq extends RawRequirement {
   url: string,
   name: string,
-  count: number
+  count: number,
+  findInRaid: boolean
 };
 
 export interface RawVendorReq extends RawRequirement {

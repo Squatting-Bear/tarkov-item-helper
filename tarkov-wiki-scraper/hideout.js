@@ -71,10 +71,14 @@ function processHideoutModuleLevel(moduleTableRow) {
       let reqModule = match[2];
       requirements.push({ kind: 'hideout', name: reqModule, url: ('hideout-module:' + reqModule), level: +(match[1])});
     }
-    else if (match = /^\*\s(\d+)\s+(\[\[[^\]]+\]\])/.exec(requirementText)) {
+    else if (match = /^\*\s(\d+)\s+(\[\[[^\]]+\]\])( found \[\[Found in raid)?/.exec(requirementText)) {
       // Item requirement
-      let item = common.extractWikiLink(match[2]);
-      requirements.push({ kind: 'item', name: item, url: common.pageTitleToUrl(item), count: +(match[1])});
+      const count = +(match[1]);
+      const item = common.extractWikiLink(match[2]);
+      const url = common.pageTitleToUrl(item);
+      const findInRaid = !!match[3];
+      requirements.push({ kind: 'item', name: item, url: url, count: count, findInRaid: findInRaid});
+      // console.log(requirements[requirements.length - 1]);
     }
     else if ((requirementText === 'Or') || /\* Owning /.test(requirementText)) {
       // Skip these; they're used when modules can be pre-unlocked by owning particular editions of the game.

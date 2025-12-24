@@ -1,7 +1,7 @@
 import { count } from 'console';
 import * as readline from 'readline';
 import { Item, Purpose, ItemExchange, Quest, HideoutLevelDetails, Craft, VendorLoyaltyLevel, Trade, Vendor,
-         Notable, Completable, HideoutModule, pmcLevelComparator } from './data';
+         Notable, Completable, HideoutModule, ItemSpec, pmcLevelComparator } from './data';
 import { SettingsManager } from './user-settings';
 import { pushUnique } from './util';
 
@@ -143,11 +143,18 @@ const ANSI = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
-  blue: '\x1b[94m',
+  blue: '\x1b[34m',
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
+  brightGreen: '\x1b[92m',
+  brightBlue: '\x1b[94m',
+  defaultColour: '\x1b[39m',
   reset: '\x1b[0m',
 };
+
+function inRaidMark(isFindInRaid: boolean) {
+  return isFindInRaid ? `${ANSI.brightGreen}^${ANSI.defaultColour}` : '';
+}
 
 // Context required when handling a command.
 class CommandContext {
@@ -335,14 +342,14 @@ abstract class CompletableWrapper extends NotableWrapper {
 
 // Class representing a numbered line describing an Item.
 class ItemWrapper extends NotableWrapper implements NumberedThingWrapper {
-  constructor(private item: Item, private count?: number) {
+  constructor(private item: Item, private spec?: ItemSpec) {
     super(item);
   }
 
   getSummary(): string {
     let summary = `${ANSI.green}"${this.item.name}"${ANSI.reset} (${this.item.getRawShortName()})`;
-    if (this.count) {
-      summary += ` x${this.count}`;
+    if (this.spec) {
+      summary += `${inRaidMark(this.spec.findInRaid)} x${this.spec.count}`;
     }
     return summary;
   }
@@ -392,19 +399,18 @@ class ExchangeWrapper implements NumberedThingWrapper {
     let pmcReq = this.exchange.isAvailable() ? '' : `${ANSI.inverse}*PMC${this.getRequiredPmcLevel()}${ANSI.reset}\t`;
     let summary = `${pmcReq}${ANSI.cyan}${exchange.getKind().toUpperCase()}${ANSI.reset} (`;
     let separator = '';
-    for (const item of exchange.getInputItems()) {
-      let itemCount = exchange.getItemCount(item);
-      let itemText = `${separator}"${item.name}" x${itemCount}`;
-      if (item === this.highlightedItem) {
+    for (const itemSpec of exchange.getInputItems()) {
+      let itemText = `${separator}"${itemSpec.item.name}" x${itemSpec.count}`;
+      if (itemSpec.item === this.highlightedItem) {
         itemText = `${ANSI.bold}${itemText}${ANSI.reset}`;
       }
       summary += itemText;
       separator = ', ';
     }
     let provider = exchange.getProviderDescription();
-    let outputItem = exchange.getOutputItem();
-    let outputItemText = `"${outputItem.name}" x${exchange.getItemCount(outputItem)}`;
-    if (outputItem === this.highlightedItem) {
+    let outputItemSpec = exchange.getOutputItem();
+    let outputItemText = `"${outputItemSpec.item.name}"${inRaidMark(outputItemSpec.findInRaid)} x${outputItemSpec.count}`;
+    if (outputItemSpec.item === this.highlightedItem) {
       outputItemText = `${ANSI.bold}${outputItemText}${ANSI.reset}`;
     }
     summary += `) ${ANSI.cyan}at${ANSI.reset} ${provider} ${ANSI.cyan}to get${ANSI.reset} (${outputItemText})`;
@@ -425,14 +431,13 @@ class ExchangeWrapper implements NumberedThingWrapper {
     }
     context.addSimpleLine(`give:`);
 
-    for (const item of exchange.getInputItems()) {
-      let itemCount = exchange.getItemCount(item);
-      context.addNumberedLine(new ItemWrapper(item, itemCount));
+    for (const itemSpec of exchange.getInputItems()) {
+      context.addNumberedLine(new ItemWrapper(itemSpec.item, itemSpec));
     }
 
     context.addSimpleLine(`to get:`);
-    let outputItem = exchange.getOutputItem();
-    context.addNumberedLine(new ItemWrapper(outputItem, exchange.getItemCount(outputItem)));
+    let outputItemSpec = exchange.getOutputItem();
+    context.addNumberedLine(new ItemWrapper(outputItemSpec.item, outputItemSpec));
   }
 }
 
@@ -460,9 +465,8 @@ class QuestWrapper extends CompletableWrapper implements NumberedThingWrapper {
     context.addSimpleLine(`objectives:`);
     for (const [ reqKind, reqDetails ] of quest.getAllRequirements()) {
       if (reqKind === 'item') {
-        let item = reqDetails as Item;
-        let itemCount = quest.getRequiredItemCount(item);
-        context.addNumberedLine(new ItemWrapper(item, itemCount));
+        let itemSpec = reqDetails as ItemSpec;
+        context.addNumberedLine(new ItemWrapper(itemSpec.item, itemSpec));
       }
       else {
         context.addSimpleLine(`${reqDetails}`, true);
@@ -506,9 +510,8 @@ class HideoutLevelWrapper extends CompletableWrapper implements NumberedThingWra
 
     for (const [ reqKind, reqDetails ] of hideoutLevel.getAllRequirements()) {
       if (reqKind === 'item') {
-        let item = reqDetails as Item;
-        let itemCount = hideoutLevel.getRequiredItemCount(item);
-        context.addNumberedLine(new ItemWrapper(item, itemCount));
+        let itemSpec = reqDetails as ItemSpec;
+        context.addNumberedLine(new ItemWrapper(itemSpec.item, itemSpec));
       }
       else if (reqKind === 'hideout') {
         let hideoutLvl = reqDetails as HideoutLevelDetails;
@@ -543,8 +546,11 @@ class PurposeWrapper implements NumberedThingWrapper {
     // console.log('got purpose ' + target.getDescription());
   
     let summary = ``;
+    const targetItemSpec = this.purpose.getTargetItemSpec();
     for (const segment of this.purpose.trail) {
-      summary += '"' + segment.item.name + '" x' + segment.countOut + ' -> ';
+      const item = segment.item;
+      const firMark = (item === targetItemSpec.item) ? inRaidMark(targetItemSpec.findInRaid) : '';
+      summary += `"${segment.item.name}"${firMark} x${segment.countOut} ${ANSI.cyan}->${ANSI.reset} `;
     }
     summary += target.getDescription();
     return summary;
@@ -564,15 +570,15 @@ class PurposeWrapper implements NumberedThingWrapper {
     }
 
     // Show what the item's used for.
-    let lastItem = purpose.trail[purpose.trail.length - 1].item;
+    const targetItemSpec = purpose.getTargetItemSpec();
+    const firMark = inRaidMark(targetItemSpec.findInRaid);
+    const requirement = `... requires item "${targetItemSpec.item.name}"${firMark} x${targetItemSpec.count}`;
     if (Quest.KIND === purpose.target.getKind()) {
       let quest = purpose.target as Quest;
-      let requirement = `... requires item "${lastItem.name}" x${quest.getRequiredItemCount(lastItem)}`;
       context.addNumberedLine(new QuestWrapper(quest, true), requirement);
     }
     else if (HideoutLevelDetails.KIND === purpose.target.getKind()) {
       let hideoutLvl = purpose.target as HideoutLevelDetails;
-      let requirement = `... requires item "${lastItem.name}" x${hideoutLvl.getRequiredItemCount(lastItem)}`;
       context.addNumberedLine(new HideoutLevelWrapper(hideoutLvl, true), requirement);
     }
     else {
@@ -582,7 +588,8 @@ class PurposeWrapper implements NumberedThingWrapper {
     // Also show a summary of the total raw materials.
     context.addSimpleLine('Total items input:');
     for (const [item, amount] of purpose.getAllInputs()) {
-      context.addNumberedLine(new ItemWrapper(item, amount));
+      const findInRaid = (item === targetItemSpec.item) && targetItemSpec.findInRaid;
+      context.addNumberedLine(new ItemWrapper(item, new ItemSpec(item, amount, findInRaid)));
     }
   }
 }
@@ -1021,13 +1028,8 @@ console.log('Enter /help for a list of available commands.');
 waitForCommand();
 
 // todo:
-//ajw check these
 // - implement /uncomplete cmd (unmark quest or hideout module as complete)
 // - there are other errors that should set addToHistory to false
-// - altyn fshield details gives 'Item not foundDogtag USEC'
-// - possibly /complete /note /trim shouldn't do anything when run from history, just show output.
-// - if last command failed, history shouldn't skip over previous successful one.
-
 // - if a nested command fails, the entire command should fail i.e. not be added to history
 // - /findq should say if it trimmed results
 // - remove asterisks from start of non-item quest objectives

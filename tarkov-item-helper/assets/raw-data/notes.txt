@@ -9,14 +9,7 @@ Getting the item short names:
 - Edit to remove rubbish & cruft
   - illegal chars at start and end
   - only need "data"/"templates" attrib
-- Some items were missing so I added them with fake ids near the top of the file
-  e.g.
-  "whitlock-fake-id-001": {
-        "Name": "SSSh-95 Sfera-S helmet",
-        "ShortName": "SFERA"
-      }
-  Update: haven't had to do this with current Tarkov version, hopefully the TestBackendLocaleEn
-  file is now being kept up to date properly.
+- Some items were missing so I added them with fake ids in item-names.js (the MISSING_NAMES constant).
 - Run tarkov-wiki-scraper/tmp.sh to produce item-names.json then copy that to
   tarkov-item-helper/assets/raw-data.
   - The LOCALE_FILE variable in tmp.sh needs to point to TestBackendLocaleEn.

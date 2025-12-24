@@ -135,7 +135,9 @@ function processQuestPage(questPage, questName) {
         if (match && !isObjectiveIncorrectMatch(match)) {
           let itemName = match.groups.link;
           let itemCount = match.groups.num ? +(match.groups.num) : 1;
-          let item = { kind: 'item', count: itemCount, url: common.pageTitleToUrl(itemName), name: itemName };
+          //ajw currently assuming every requirement is find-in-raid, but we should do
+          // more extensive checking.
+          let item = { kind: 'item', count: itemCount, url: common.pageTitleToUrl(itemName), name: itemName, findInRaid: true };
           // console.log(item);
           objectivesInfo.push(item);
         }

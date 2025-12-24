@@ -47,6 +47,11 @@ function processCraftsOrTradesPage(doc, specificStuff) {
       const outputEntry = specificStuff.tableRowProcessor(row);
       if (outputEntry) {
         result.push(outputEntry);
+
+        if (outputEntry.inputs.length === 0 || !outputEntry.output) {
+          console.error('Error reading trade or craft');
+          console.error(row);
+        }
       }
     }
   }
@@ -55,14 +60,15 @@ function processCraftsOrTradesPage(doc, specificStuff) {
   console.log('finished writing ' + specificStuff.outputFilename);
 }
 
-const INPUT_ITEM_REGEX = /\[\[[^\]]+\]\]\s*(?:x(?<num>\d+)\s*)?\<br\/\>\s*[^\[\+]*\[\[(?<id>[^\|\]]*)\|?[^\]]*\]\]/g;
+const INPUT_ITEM_REGEX = /\[\[[^\]]+\]\]\s*(?:x(?<num>\d+)\s*)?\<br\s*\/\>\s*[^\[\+]*\[\[(?<id>[^\|\]]*)\|?[^\]]*\]\]/g;
 
-function readItemList(itemListText) {
+function readItemList(itemListText, findInRaid) {
   let inputs = [];
   for (let matchResult of itemListText.matchAll(INPUT_ITEM_REGEX)) {
     let itemCount = matchResult.groups.num ? +(matchResult.groups.num) : 1;
     let itemName = matchResult.groups.id.trim();
-    inputs.push({ kind: 'item', count: itemCount, url: common.pageTitleToUrl(itemName), name: itemName });
+    const url = common.pageTitleToUrl(itemName);
+    inputs.push({ kind: 'item', count: itemCount, url: url, name: itemName, findInRaid: findInRaid });
   }
   return inputs;
 }
@@ -75,7 +81,7 @@ function processCraftRow(tableRow) {
     return null;
   }
 
-  let inputs = readItemList(inputsText);
+  let inputs = readItemList(inputsText, false);
 
   const HIDEOUT_MODULE_REGEX = /\[\[Hideout#Modules\|([^\]]+)\]\]/;
   let moduleNameAndMaybeLevel = HIDEOUT_MODULE_REGEX.exec(tableRow[2][0])[1];
@@ -84,7 +90,12 @@ function processCraftRow(tableRow) {
   let moduleName = levelMatch ? levelMatch[1] : moduleNameAndMaybeLevel;
   let provider = { kind: 'craft', module: moduleName.trim(), level: level };
 
-  let output = readItemList(tableRow[4][0])[0];
+  if (inputs.length === 0 && moduleName === 'Bitcoin farm') {
+    // Ignore this craft since it requires no inputs
+    return null;
+  }
+
+  let output = readItemList(tableRow[4][0], true)[0];
   let result = { inputs: inputs, provider: provider, output: output };
 
   // console.log(result);
@@ -99,7 +110,7 @@ function processTradeRow(tableRow) {
     return null;
   }
 
-  let inputs = readItemList(inputsText);
+  let inputs = readItemList(inputsText, false);
 
   const VENDOR_WITH_LL_REGEX = /\[\[[^\|]*\|([^\]]+) LL(\d+)\s*\]\]/;
   let vendorMatch = VENDOR_WITH_LL_REGEX.exec(tableRow[2][0]);
@@ -107,9 +118,10 @@ function processTradeRow(tableRow) {
 
   // The output cell contains an image link (then a text link, but that's redundant for us).
   const WIKI_IMAGE_LINK_REGEX = /[^\[]*\[\[.*\|link=([^\]]*)\]\]/;
-  let outputItemName = WIKI_IMAGE_LINK_REGEX.exec(tableRow[4][0])[1];
-  let output = { kind: 'item', count: 1, url: common.pageTitleToUrl(outputItemName), name: outputItemName };
-  let result = { inputs: inputs, provider: provider, output: output };
+  const outputItemName = WIKI_IMAGE_LINK_REGEX.exec(tableRow[4][0])[1];
+  const url = common.pageTitleToUrl(outputItemName);
+  const output = { kind: 'item', count: 1, url: url, name: outputItemName, findInRaid: false };
+  const result = { inputs: inputs, provider: provider, output: output };
 
   // console.log(result);
   return result;

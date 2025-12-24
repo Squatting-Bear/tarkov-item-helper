@@ -19,7 +19,7 @@ const COLLECTOR_QUEST_URL = 'https://escapefromtarkov.fandom.com/wiki/Collector'
 // Specifies the PMC requirements for upgrading the vendors.
 const VENDOR_PMC_LEVEL_REQS: { [name: string]: number[] } = {
   "Prapor": [ 1, 15, 26, 36 ],
-  "Therapist": [ 1, 13, 24, 35 ],
+  "Therapist": [ 1, 14, 24, 37 ],
   "Skier": [ 1, 15, 28, 38 ],
   "Peacekeeper": [ 1, 14, 23, 37 ],
   "Mechanic": [ 1, 20, 30, 40 ],
@@ -100,7 +100,7 @@ export class Item extends Notable {
   // Only use during setup
   _addProduct(product: ItemExchange) {
     this.products.push(product);
-    let outputItemProducers = product.getOutputItem().producers;
+    let outputItemProducers = product.getOutputItem().item.producers;
     if (outputItemProducers.indexOf(product) < 0) {
       outputItemProducers.push(product);
     }
@@ -141,6 +141,7 @@ export class Item extends Notable {
   }
 
   // Only use during setup
+//ajw this isn't only being used during setup, see 'getrequirements' methods
   static _getFromWikiReference(rawItemReq: RawItemReq, debugInfo: any) {
     if (!(rawItemReq && rawItemReq.url && rawItemReq.name)) {
       Fail.unless(false, `Invalid item: ${JSON.stringify(debugInfo)}`);
@@ -179,6 +180,17 @@ export class Item extends Notable {
   }
  
   private static NAME_FIXES = JSON.parse(fs.readFileSync(ITEM_NAME_FIXES_FILE).toString());
+}
+
+// Class for specifying an item along with a count and a possible find-in-raid condition.
+export class ItemSpec {
+  constructor(public item: Item, public count: number, public findInRaid: boolean) {
+  }
+
+  static fromRaw(rawReq: RawItemReq, debugInfo: any) {
+    const item = Item._getFromWikiReference(rawReq as RawItemReq, debugInfo);
+    return new ItemSpec(item, rawReq.count, rawReq.findInRaid);
+  }
 }
 
 // Interface for things that have a PMC level requirement.
@@ -273,30 +285,29 @@ export abstract class ItemExchange implements RequiresPmcLevel {
   constructor(protected rawCraftOrTrade: RawCraftOrTrade) {
     this.getOutputItem(); // to ensure item created
     for (const input of this.getInputItems()) {
-      input._addProduct(this);
+      input.item._addProduct(this);
     }
   }
 
-  abstract givesInRaid(): boolean;
   abstract getProviderDescription(): string;
 
   getKind(): string {
     return this.rawCraftOrTrade.provider.kind;
   }
 
-  getInputItems(): Item[] {
-    return this.rawCraftOrTrade.inputs.map(rawItemReq => Item._getFromWikiReference(rawItemReq, this.rawCraftOrTrade));
+  getInputItems(): ItemSpec[] {
+    return this.rawCraftOrTrade.inputs.map(rawItemReq => ItemSpec.fromRaw(rawItemReq, this.rawCraftOrTrade));
   }
 
-  getOutputItem(): Item {
-    return Item._getFromWikiReference(this.rawCraftOrTrade.output, this.rawCraftOrTrade);
+  getOutputItem(): ItemSpec {
+    return ItemSpec.fromRaw(this.rawCraftOrTrade.output, this.rawCraftOrTrade);
   }
 
-  getItemCount(item: Item) {
-    if (item === this.getOutputItem()) {
-      return this.rawCraftOrTrade.output.count;
+  findSpec(item: Item): ItemSpec {
+    if (item === this.getOutputItem().item) {
+      return this.getOutputItem();
     }
-    return RequirementsHelper.getRequiredItemCount(item, this.rawCraftOrTrade.inputs);
+    return RequirementsHelper.findRequiredItemSpec(item, this.getInputItems());
   }
 
   isAvailable() {
@@ -318,10 +329,6 @@ export class Craft extends ItemExchange {
 
     let moduleName = (provider.module as string).toLowerCase();
     this.hideoutLevel = HideoutModule.getModuleLevel(moduleName, provider.level);
-  }
-
-  givesInRaid(): boolean {
-    return true;
   }
 
   getRequiredPmcLevel(): number {
@@ -348,10 +355,6 @@ export class Trade extends ItemExchange {
     this.vendorLoyaltyLevel = Vendor.getLoyaltyLevel(provider.vendor || '<name missing>', provider.level);
   }
 
-  givesInRaid(): boolean {
-    return false;
-  }
-
   getRequiredPmcLevel(): number {
     return this.vendorLoyaltyLevel.pmcLevelRequired;
   }
@@ -369,9 +372,9 @@ export class Trade extends ItemExchange {
 export interface RequiresItems extends RequiresPmcLevel {
   getKind(): number;
   getDescription(): string;
-  getRequiredItems(): Item[];
+  getRequiredItems(): ItemSpec[];
   requiresInRaid(): boolean;
-  getRequiredItemCount(item: Item): number;
+  findRequiredItemSpec(item: Item): ItemSpec;
   isCompleted(): boolean;
 }
 
@@ -396,27 +399,23 @@ function getPriorNodesTransitive<T extends PmcLevelReqGraphNode<T>>(startNode: T
 
 // Contains helper functions for processing requirements in their JSON form.
 class RequirementsHelper {
-  static getRequiredItems(debugInfo: any, rawRequirements?: RawRequirement[]): Item[] {
-    let requiredItems: Item[] = [];
+  static getRequiredItems(debugInfo: any, rawRequirements?: RawRequirement[]): ItemSpec[] {
+    let requiredItems: ItemSpec[] = [];
     if (rawRequirements) {
       for (const rawReq of rawRequirements) {
         if (rawReq.kind === 'item') {
-          requiredItems.push(Item._getFromWikiReference(rawReq as RawItemReq, debugInfo));
+          requiredItems.push(ItemSpec.fromRaw(rawReq as RawItemReq, debugInfo));
         }
       }
     }
     return requiredItems;
   }
 
-  // Helper function to find the requirement for the given item and return the amount required.
-  static getRequiredItemCount(item: Item, requirements: RawRequirement[]) {
-    let id = item.url;
-    for (const requirement of requirements) {
-      if (requirement.kind === 'item') {
-        let itemRequirement = requirement as RawItemReq;
-        if (itemRequirement.url === id) {
-          return itemRequirement.count;
-        }
+  // Helper function to find the requirements for the given item.
+  static findRequiredItemSpec(item: Item, requirements: ItemSpec[]): ItemSpec {
+    for (const spec of requirements) {
+      if (spec.item === item) {
+        return spec;
       }
     }
     throw ("Item not found" + item.name);
@@ -428,7 +427,7 @@ class RequirementsHelper {
       for (const rawReq of rawRequirements) {
         let reqDetails: any;
         if (rawReq.kind === 'item') {
-          reqDetails = Item._getFromWikiReference(rawReq as RawItemReq, debugInfo);
+          reqDetails = ItemSpec.fromRaw(rawReq as RawItemReq, debugInfo);
         }
         else if (rawReq.kind === 'hideout') {
           let hideoutReq = rawReq as RawHideoutReq;
@@ -449,7 +448,7 @@ class RequirementsHelper {
 }
 
 // Represents a quest in the game.
-export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
+export class Quest extends Completable implements PmcLevelReqGraphNode<Quest>, RequiresItems {
   static readonly KIND = 0;
 
   private priorQuests: Quest[] = [];
@@ -459,13 +458,13 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
   constructor(private rawQuest: RawQuest) {
     super('quest', rawQuest.url);
     for (const requirement of this.getRequiredItems()) {
-      requirement._addQuest(this);
+      requirement.item._addQuest(this);
     }
     this.requiredPmcLevel = rawQuest.requiredLevel || 1;
-    //ajw check this, hopefully unncessary now?
     if (rawQuest.url === COLLECTOR_QUEST_URL && !rawQuest.requiredLevel) {
-      // Special case, wiki doesn't list a requirement for this but it actually has a high one.
-      this.requiredPmcLevel = 62;
+      // Special case, wiki doesn't list a requirement for this in the usual place, but it does
+      // have a calculatable level req that's detailed further down in the wiki page text.
+      this.requiredPmcLevel = 45;
     }
     Quest.QUESTS_BY_URL[rawQuest.url] = this;
   }
@@ -490,7 +489,7 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
     return this.rawQuest.url;
   }
 
-  getRequiredItems(): Item[] {
+  getRequiredItems(): ItemSpec[] {
     return RequirementsHelper.getRequiredItems(this.rawQuest, this.rawQuest.objectives);
   }
 
@@ -502,8 +501,8 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
     return true;
   }
 
-  getRequiredItemCount(item: Item): number {
-    return RequirementsHelper.getRequiredItemCount(item, this.rawQuest.objectives);
+  findRequiredItemSpec(item: Item): ItemSpec {
+    return RequirementsHelper.findRequiredItemSpec(item, this.getRequiredItems());
   }
 
   getRequiredPmcLevel() {
@@ -558,7 +557,7 @@ export class Quest extends Completable implements PmcLevelReqGraphNode<Quest> {
 }
 
 // Represents a single level of a hideout module.
-export class HideoutLevelDetails extends Completable implements PmcLevelReqGraphNode<HideoutLevelDetails> {
+export class HideoutLevelDetails extends Completable implements PmcLevelReqGraphNode<HideoutLevelDetails>, RequiresItems {
   static readonly KIND = 1;
 
   // Hideout module levels which must be built before this one can be built.
@@ -571,7 +570,7 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
   constructor(private rawHideoutLevelDetails: RawHideoutLevelDetails, public module: HideoutModule, public level: number) {
     super('hideout', module.getName().toLowerCase() + ':' + level);
     for (const requirement of this.getRequiredItems()) {
-      requirement._addHideoutLevel(this);
+      requirement.item._addHideoutLevel(this);
     }
   }
 
@@ -583,7 +582,7 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
     return `Hideout ${this.module.getName()} level ${this.level}`;
   }
 
-  getRequiredItems(): Item[] {
+  getRequiredItems(): ItemSpec[] {
     return RequirementsHelper.getRequiredItems(this.rawHideoutLevelDetails, this.rawHideoutLevelDetails.requirements);
   }
 
@@ -595,8 +594,8 @@ export class HideoutLevelDetails extends Completable implements PmcLevelReqGraph
     return false;
   }
 
-  getRequiredItemCount(item: Item): number {
-    return RequirementsHelper.getRequiredItemCount(item, this.rawHideoutLevelDetails.requirements || []);
+  findRequiredItemSpec(item: Item): ItemSpec {
+    return RequirementsHelper.findRequiredItemSpec(item, this.getRequiredItems());
   }
 
   getRequiredPmcLevel() {
@@ -705,15 +704,14 @@ export class TrailSegment {
   }
 
   static fromExchange(exchange: ItemExchange, inputItem: Item) {
-    const inputCount = exchange.getItemCount(inputItem);
+    const inputCount = exchange.findSpec(inputItem).count;
     const outputItem = exchange.getOutputItem();
-    const outputCount = exchange.getItemCount(outputItem);
-    return new TrailSegment(outputItem, inputCount, outputCount, exchange);
+    return new TrailSegment(outputItem.item, inputCount, outputItem.count, exchange);
   }
 
   getExchangeCount(): number {
     let exchange = this.exchange;
-    return exchange ? Math.ceil(this.countOut / exchange.getItemCount(exchange.getOutputItem())) : 0;
+    return exchange ? Math.ceil(this.countOut / exchange.getOutputItem().count) : 0;
   }
 }
 
@@ -722,15 +720,20 @@ export class TrailSegment {
 export class Purpose {
   constructor(public trail: TrailSegment[], public target: RequiresItems) {
     // Compute total numbers of items required.
-    let index = trail.length - 1;
-    let neededCount = target.getRequiredItemCount(trail[index].item);
-    for (; index >= 0; --index) {
+    const targetItemSpec = this.getTargetItemSpec();
+    let neededCount = targetItemSpec.count;
+    for (let index = trail.length - 1; index >= 0; --index) {
       let segment = trail[index];
       let exchangeCount = Math.ceil(neededCount / segment.countOut);
       let adjustedCountIn = segment.countIn * exchangeCount;
       trail[index] = new TrailSegment(segment.item, adjustedCountIn, neededCount, segment.exchange);
       neededCount = adjustedCountIn;
     }
+  }
+
+  getTargetItemSpec() {
+    const targetItem = this.trail[this.trail.length - 1].item;
+    return RequirementsHelper.findRequiredItemSpec(targetItem, this.target.getRequiredItems());
   }
 
   getRequiredPmcLevel(): number {
@@ -753,10 +756,10 @@ export class Purpose {
       let exchange = segment.exchange as ItemExchange;
       let exchangeCount = segment.getExchangeCount();
       for (const inputItem of exchange.getInputItems()) {
-        if (inputItem !== outputItem) {
-          let currentAmount = inputs.get(inputItem) || 0;
-          let inputCount = exchange.getItemCount(inputItem) * exchangeCount;
-          inputs.set(inputItem, (currentAmount + inputCount));
+        if (inputItem.item !== outputItem) {
+          let currentAmount = inputs.get(inputItem.item) || 0;
+          let inputCount = inputItem.count * exchangeCount;
+          inputs.set(inputItem.item, (currentAmount + inputCount));
         }
       }
       outputItem = segment.item;
@@ -771,27 +774,22 @@ export class Purpose {
     return results.sort(pmcLevelComparator);
 
     function doPurposeStep(stepItem: Item, isInRaid: boolean, trail: TrailSegment[]) {
-      if (isInRaid) {
-        for (const quest of stepItem.quests) {
-          if (!seen.has(quest)) {
-            seen.add(quest);
-            results.push(new Purpose([...trail], quest));
+      const itemRequirers = (stepItem.quests as RequiresItems[]).concat(stepItem.hideoutLevels);
+      for (const itemRequirer of itemRequirers) {
+        if (!seen.has(itemRequirer)) {
+          if (isInRaid || !itemRequirer.findRequiredItemSpec(stepItem).findInRaid) {
+            seen.add(itemRequirer);
+            results.push(new Purpose([...trail], itemRequirer));
           }
-        }
-      }
-
-      for (const hideoutLevel of stepItem.hideoutLevels) {
-        if (!seen.has(hideoutLevel)) {
-          seen.add(hideoutLevel);
-          results.push(new Purpose([...trail], hideoutLevel));
         }
       }
 
       for (const product of stepItem.products) {
         let nextItem = product.getOutputItem();
-        if (!seen.has(nextItem)) {
-          seen.add(nextItem);
-          doPurposeStep(nextItem, product.givesInRaid(), [...trail, TrailSegment.fromExchange(product, stepItem)]);
+        if (!seen.has(nextItem.item)) {
+          seen.add(nextItem.item);
+          const nextSegment = TrailSegment.fromExchange(product, stepItem);
+          doPurposeStep(nextItem.item, nextItem.findInRaid, [...trail, nextSegment]);
         }
       }
     }
